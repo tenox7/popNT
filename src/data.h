@@ -22,12 +22,10 @@ The authors of this program may be contacted at https://forum.princed.org
 #define DATA_H
 
 #ifdef BODY
-// If included from data.c: definitions (without extern and with initialization).
-#define INIT(...) __VA_ARGS__
+#define INIT(x) x
 #define extern
 #else
-// Otherwise: just declarations (with extern and without initialization).
-#define INIT(...)
+#define INIT(x)
 #undef extern
 #endif
 

@@ -46,6 +46,8 @@ extern "C" {
 #define F_OK    0       /* Test for existence.  */
 #define access _access
 #endif
+#include <malloc.h>
+#define alloca _alloca
 #endif
 
 // S_ISREG and S_ISDIR may not be defined under MSVC
@@ -61,6 +63,36 @@ extern "C" {
 #include "proto.h"
 #include "data.h"
 
+/* Safe unaligned memory access for RISC platforms */
+#if defined(_M_ALPHA) || defined(_M_MRX000) || defined(_M_PPC) || defined(__PSP__) || !defined(_M_IX86)
+#define UNALIGNED_OK 0
+#else
+#define UNALIGNED_OK 1
+#endif
+
+#if !UNALIGNED_OK
+#define READ_U16(p) ((word)((byte*)(p))[0] | ((word)((byte*)(p))[1] << 8))
+#define READ_S16(p) ((short)READ_U16(p))
+#define READ_U32(p) ((dword)((byte*)(p))[0] | ((dword)((byte*)(p))[1]<<8) | ((dword)((byte*)(p))[2]<<16) | ((dword)((byte*)(p))[3]<<24))
+#define WRITE_U16(p,v) do { ((byte*)(p))[0]=(byte)(v); ((byte*)(p))[1]=(byte)((v)>>8); } while(0)
+#define WRITE_S16(p,v) WRITE_U16(p,v)
+
+#undef SDL_SwapLE16
+#define SDL_SwapLE16(x) (x)
+#undef SDL_SwapLE32
+#define SDL_SwapLE32(x) (x)
+#undef SDL_SwapBE16
+#define SDL_SwapBE16(x) ( (((x)>>8)&0xFF) | (((x)&0xFF)<<8) )
+#undef SDL_SwapBE32
+#define SDL_SwapBE32(x) ( (((x)>>24)&0xFF) | (((x)>>8)&0xFF00) | (((x)&0xFF00)<<8) | (((x)&0xFF)<<24) )
+#else
+#define READ_U16(p) (*(word*)(p))
+#define READ_S16(p) (*(short*)(p))
+#define READ_U32(p) (*(dword*)(p))
+#define WRITE_U16(p,v) (*(word*)(p) = (word)(v))
+#define WRITE_S16(p,v) (*(short*)(p) = (short)(v))
+#endif
+
 #ifndef MAX
 #define MAX(a,b) ((a)>(b)?(a):(b))
 #endif
@@ -71,6 +103,10 @@ extern "C" {
 #define ABS(x) ((x)<0?-(x):(x))
 #endif
 
+#ifdef _MSC_VER
+#define snprintf _snprintf
+#define snprintf_check _snprintf
+#else
 #define snprintf_check(dst, size, ...)	do {			\
 		int __len;					\
 		__len = snprintf(dst, size, __VA_ARGS__);	\
@@ -79,6 +115,7 @@ extern "C" {
 			quit(2);				\
 		}						\
 	} while (0)
+#endif
 
 #ifdef __cplusplus
 }

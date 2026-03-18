@@ -602,9 +602,10 @@ void control_running() {
 
 // seg005:06A8
 void safe_step() {
+	short distance;
 	control_shift2 = CONTROL_IGNORE; // disable automatic repeat
 	control_forward = CONTROL_IGNORE; // disable automatic repeat
-	short distance = get_edge_distance();
+	distance = get_edge_distance();
 	if (distance) {
 		Char.repeat = 1;
 		seqtbl_offset_char(distance + 28); // 29..42: safe step to edge
@@ -655,7 +656,8 @@ void get_item() {
 		seqtbl_offset_char(seq_78_drink); // drink
 #ifdef USE_COPYPROT
 		if (current_level == 15) {
-			for (short index = 0; index < 14; ++index) {
+			short index;
+			for (index = 0; index < 14; ++index) {
 				// remove letter on potions level
 				if (copyprot_room[index] == curr_room &&
 					copyprot_tile[index] == curr_tilepos
@@ -733,8 +735,10 @@ void grab_up_no_floor_behind() {
 // seg005:08E6
 void jump_up() {
 	word delta_x;
+	short distance;
+	int char_col;
 	control_up = release_arrows();
-	short distance = get_edge_distance();
+	distance = get_edge_distance();
 	if (distance < 4 && edge_type == EDGE_TYPE_WALL) {
 		Char.x = char_dx_forward(distance - 3);
 	}
@@ -752,7 +756,7 @@ void jump_up() {
 	} else {
 		delta_x = 0;
 	}
-	int char_col = get_tile_div_mod(back_delta_x(delta_x) + dx_weight() - 6);
+	char_col = get_tile_div_mod(back_delta_x(delta_x) + dx_weight() - 6);
 	get_tile(Char.room, char_col, Char.curr_row - 1);
 	if (curr_tile2 != tiles_20_wall && !tile_is_floor(curr_tile2)) {
 		if (fixes->enable_super_high_jump && is_feather_fall) { // super high jump can only happen in feather mode
@@ -760,9 +764,10 @@ void jump_up() {
 				seqtbl_offset_char(seq_14_jump_up_into_ceiling);
 			} else {
 				get_tile(Char.room, char_col, Char.curr_row - 2); // the target top tile
-				bool is_top_floor = tile_is_floor(curr_tile2) || curr_tile2 == tiles_20_wall;
+				{
+				int is_top_floor = tile_is_floor(curr_tile2) || curr_tile2 == tiles_20_wall;
 				if (is_top_floor && curr_tile2 == tiles_11_loose && (curr_room_tiles[curr_tilepos] & 0x20) == 0) {
-					is_top_floor = false; // a regular loose floor above should not be treated as a floor
+					is_top_floor = 0; // a regular loose floor above should not be treated as a floor
 				}
 				// kid should jump slightly higher if the top tile is not a floor
 				super_jump_timer = is_top_floor ? 22 : 24;
@@ -770,6 +775,7 @@ void jump_up() {
 				super_jump_col = tile_col;
 				super_jump_row = tile_row;
 				seqtbl_offset_char(seq_48_super_high_jump); // jump up 2 rows with nothing above
+			}
 			}
 		} else {
 			seqtbl_offset_char(seq_28_jump_up_with_nothing_above); // jump up with nothing above
@@ -898,10 +904,10 @@ void grab_up_with_floor_behind() {
 void run_jump() {
 	short pos_adjustment;
 	if (Char.frame >= frame_7_run) {
-		// Align Kid to edge of floor.
 		short xpos = char_dx_forward(4);
 		short col = get_tile_div_mod_m7(xpos);
-		for (short tiles_forward = 0; tiles_forward < 2; ++tiles_forward) { // Iterate through current tile and the next two tiles looking for a tile the player should jump from
+		short tiles_forward;
+		for (tiles_forward = 0; tiles_forward < 2; ++tiles_forward) { // Iterate through current tile and the next two tiles looking for a tile the player should jump from
 			col += dir_front[Char.direction + 1];
 			get_tile(Char.room, col, Char.curr_row);
 			if (curr_tile2 == tiles_2_spike || ! tile_is_floor(curr_tile2)) {
@@ -1112,7 +1118,7 @@ void teleport() {
 	//int source_room = Char.room;
 	//int source_tilepos = Char.curr_row * 10 + Char.curr_col - 1;
 
-	bool found = false;
+	int found = 0;
 	int dest_room, dest_tilepos;
 
 	// Find the pair of the teleport which the prince entered.
@@ -1128,7 +1134,7 @@ void teleport() {
 
 			// The pair is a balcony tile with the same modifier.
 			if (get_curr_tile(dest_tilepos) == tiles_23_balcony_left && curr_modifier == source_modifier) {
-				found = true;
+				found = 1;
 				goto exit;
 			}
 		}

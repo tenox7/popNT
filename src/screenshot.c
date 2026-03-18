@@ -66,8 +66,9 @@ void show_result(int result, const char* what) {
 
 // Save a screenshot.
 void save_screenshot() {
+	int result;
 	make_screenshot_filename();
-	int result = IMG_SavePNG(get_final_surface(), screenshot_filename);
+	result = IMG_SavePNG(get_final_surface(), screenshot_filename);
 	show_result(result, "screenshot");
 }
 
@@ -87,13 +88,15 @@ void switch_to_room(int room) {
 	enter_guard(); // otherwise the guard won't show up
 	check_shadow(); // otherwise the shadow won't appear on level 6
 
-	// for potion bubbles
-	for (int tilepos=0;tilepos<30;tilepos++) {
+	{
+	int tilepos;
+	for (tilepos=0;tilepos<30;tilepos++) {
 		int tile_type = curr_room_tiles[tilepos] & 0x1F;
 		if (tile_type == tiles_10_potion) {
 			int modifier = curr_room_modif[tilepos];
 			if ((modifier & 7) == 0) curr_room_modif[tilepos]++;
 		}
+	}
 	}
 
 	redraw_screen(1);
@@ -113,38 +116,43 @@ int ypos[NUMBER_OF_ROOMS+1] = {0};
 // (this will make the function even more like a cheat)
 // TODO: fake tiles?
 void draw_extras(void) {
-	// ambiguous tiles
-	// The editor branch has something similar...
-	for (int tilepos=0;tilepos<30;tilepos++) {
+	int tilepos;
+	char room_num[6];
+	rect_type text_rect;
+	rect_type vline;
+	rect_type hline;
+	for (tilepos=0;tilepos<30;tilepos++) {
 		int tile_type = curr_room_tiles[tilepos] & 0x1F;
 		int modifier = curr_room_modif[tilepos];
 		int row = tilepos/10;
 		int col = tilepos%10;
 		int y = row * 63 + 3;
 		int x = col * 32;
+		rect_type floor_rect;
+		bool is_trob_here = false;
+		int index;
+		char events[256*4];
+		int events_pos;
+		char* special_event = NULL;
+		int direction;
 
-		// special floors
-		rect_type floor_rect = {y+60-3, x, y+63-3, x+32};
+		floor_rect.top = y+60-3; floor_rect.left = x; floor_rect.bottom = y+63-3; floor_rect.right = x+32;
 
-		// loose floors
 		if (tile_type == tiles_11_loose) {
 			int color = color_15_brightwhite;
-			if (curr_room_tiles[tilepos] & 0x20) color = color_13_brightmagenta; // stable loose floor
+			if (curr_room_tiles[tilepos] & 0x20) color = color_13_brightmagenta;
 			show_text_with_color(&floor_rect, halign_center, valign_top, "~~~~", color);
 		}
 
-		// buttons
 		if (tile_type == tiles_15_opener) {
 			show_text_with_color(&floor_rect, halign_center, valign_top, "^^^^", color_10_brightgreen);
 		}
 		if (tile_type == tiles_6_closer) {
-			//show_text_with_color(&floor_rect, halign_center, valign_top, "XXXX", color_12_brightred);
 			floor_rect.top -= 2;
-			show_text_with_color(&floor_rect, halign_center, valign_top, "xxxx", color_12_brightred); // Only the top half is visible, looks like an inverted "^" or a tiny "v".
+			show_text_with_color(&floor_rect, halign_center, valign_top, "xxxx", color_12_brightred);
 		}
 
-		bool is_trob_here = false;
-		for (int index = 0; index < trobs_count; ++index) {
+		for (index = 0; index < trobs_count; ++index) {
 			trob = trobs[index];
 			if (trob.room == drawn_room && trob.tilepos == tilepos) {
 				is_trob_here = true;
@@ -179,18 +187,19 @@ void draw_extras(void) {
 				int color;
 				const char* text;
 			} pot_types[7] = {
-				{color_7_lightgray, "x"}, // empty
-				{color_12_brightred, "+1"}, // heal
-				{color_12_brightred, "+++"}, // life
-				{color_10_brightgreen, "slow\nfall"}, // slow fall
-				{color_10_brightgreen, "flip"}, // upside down
-				{color_9_brightblue, "-1"}, // hurt
-				{color_9_brightblue, "trig"}, // open
+				{color_7_lightgray, "x"},
+				{color_12_brightred, "+1"},
+				{color_12_brightred, "+++"},
+				{color_10_brightgreen, "slow\nfall"},
+				{color_10_brightgreen, "flip"},
+				{color_9_brightblue, "-1"},
+				{color_9_brightblue, "trig"},
 			};
 			int potion_type = modifier >> 3;
 			int color;
 			const char* text;
 			char temp_text[4];
+			rect_type pot_rect;
 			if (potion_type >= 0 && potion_type < 7) {
 				color = pot_types[potion_type].color;
 				text = pot_types[potion_type].text;
@@ -199,7 +208,7 @@ void draw_extras(void) {
 				snprintf(temp_text, sizeof(temp_text), "%d", potion_type);
 				text = temp_text;
 			}
-			rect_type pot_rect = {y+40, x, y+60, x+32};
+			pot_rect.top = y+40; pot_rect.left = x; pot_rect.bottom = y+60; pot_rect.right = x+32;
 			show_text_with_color(&pot_rect, halign_center, valign_top, text, color);
 		}
 
@@ -214,59 +223,54 @@ void draw_extras(void) {
 		) {
 			int first_event = modifier;
 			int last_event = modifier;
+			char btn_events[256*4];
+			int btn_events_pos = 0;
+			int event;
+			rect_type buttonmod_rect;
 			while (last_event<256 && get_doorlink_next(last_event)) last_event++;
-			/*
-			char events[10];
-			if (modifier==last_event) {
-				snprintf(events, sizeof(events), "%d", first_event+EVENT_OFFSET);
-			} else { // from-to
-				snprintf(events, sizeof(events), "%d:%d", first_event+EVENT_OFFSET, last_event+EVENT_OFFSET);
+			btn_events[0] = '\0';
+			for (event=first_event; event<=last_event && btn_events_pos<(int)sizeof(btn_events); event++) {
+				int len = snprintf(btn_events+btn_events_pos, sizeof(btn_events)-btn_events_pos, "%d ", event+EVENT_OFFSET);
+				if (len < 0) break;
+				btn_events_pos += len;
 			}
-			*/
-			char events[256*4] = ""; // More than enough space to list all the numbers from 0 to 255.
-			int events_pos = 0;
-			for (int event=first_event; event<=last_event && events_pos<(int)sizeof(events); event++) {
-				int len = snprintf(events+events_pos, sizeof(events)-events_pos, "%d ", event+EVENT_OFFSET);
-				if (len < 0) break; // snprintf might return -1 if the buffer is too small.
-				events_pos += len;
-			}
-			--events_pos;
-			if (events_pos>0 && events_pos<(int)sizeof(events)) events[events_pos]='\0'; // trim trailing space
-			rect_type buttonmod_rect = {y/*+50-3*/, x, y+60-3, x+32};
-			show_text_with_color(&buttonmod_rect, halign_center, valign_bottom, events, color_14_brightyellow);
+			--btn_events_pos;
+			if (btn_events_pos>0 && btn_events_pos<(int)sizeof(btn_events)) btn_events[btn_events_pos]='\0';
+			buttonmod_rect.top = y; buttonmod_rect.left = x; buttonmod_rect.bottom = y+60-3; buttonmod_rect.right = x+32;
+			show_text_with_color(&buttonmod_rect, halign_center, valign_bottom, btn_events, color_14_brightyellow);
 		}
 
-		// TODO: Add an option to merge events pointing to the same tile?
-
-		// door events that point here
-		char events[256*4] = "";
-		int events_pos = 0;
-		for (int event=0; event<256 && events_pos<(int)sizeof(events); event++) {
+		events[0] = '\0';
+		events_pos = 0;
+		{
+		int event;
+		for (event=0; event<256 && events_pos<(int)sizeof(events); event++) {
 			if (event_used[event] && get_doorlink_room(event) == drawn_room && get_doorlink_tile(event) == tilepos) {
 				int len = snprintf(events+events_pos, (int)sizeof(events)-events_pos, "%d ", event+EVENT_OFFSET);
 				if (len < 0) break;
 				events_pos += len;
 			}
 		}
+		}
 		--events_pos;
-		if (events_pos>0 && events_pos<(int)sizeof(events)) events[events_pos]='\0'; // trim trailing space
+		if (events_pos>0 && events_pos<(int)sizeof(events)) events[events_pos]='\0';
 		if (events[0] != '\0') {
-			//printf("room %d, tile %d, events: %s\n", drawn_room, tilepos, events); // debug
-			rect_type events_rect = {y,x,y+63-3,x+32-7};
+			rect_type events_rect;
+			events_rect.top = y; events_rect.left = x; events_rect.bottom = y+63-3; events_rect.right = x+32-7;
 			show_text_with_color(&events_rect, halign_center, valign_bottom, events, color_14_brightyellow);
 		}
 
 #ifdef USE_TELEPORTS
 		if (tile_type == tiles_23_balcony_left && modifier != 0) {
 			char number[4];
+			rect_type number_rect;
 			snprintf(events, sizeof(number), "%d", modifier);
-			rect_type number_rect = {y,x+32,y+63,x+64};
+			number_rect.top = y; number_rect.left = x+32; number_rect.bottom = y+63; number_rect.right = x+64;
 			show_text_with_color(&number_rect, halign_center, valign_top, events, color_14_brightyellow);
 		}
 #endif
 
-		// special events
-		char* special_event = NULL;
+		special_event = NULL;
 
 		if (current_level == 0 && drawn_room == /*24*/ custom->demo_end_room) {
 			special_event = "exit"; // exit by entering this room
@@ -398,114 +402,110 @@ void draw_extras(void) {
 		}
 
 		if (special_event) {
-			rect_type event_rect = {y,x-10,y+63,x+32+10};
+			rect_type event_rect;
+			event_rect.top = y; event_rect.left = x-10; event_rect.bottom = y+63; event_rect.right = x+32+10;
 			show_text_with_color(&event_rect, halign_center, valign_middle, special_event, color_14_brightyellow);
 		}
 
-		// Attempt to show broken room links:
+		{
 		byte* roomlinks = (byte*)(&level.roomlinks[drawn_room-1]);
-		for (int direction = 0; direction < 4; direction++) {
+		for (direction = 0; direction < 4; direction++) {
 			int other_room = roomlinks[direction];
 			if (other_room >= 1 && other_room <= NUMBER_OF_ROOMS) {
 				int other_x = xpos[drawn_room] + dx[direction];
 				int other_y = ypos[drawn_room] + dy[direction];
-				// If the linked room was placed elsewhere: Write the number of the linked room to the corresponding edge of the room.
 				if (xpos[other_room] != other_x || ypos[other_room] != other_y) {
 					int center_x = 160+dx[direction]*150;
 					int center_y = 96+dy[direction]*85;
-					rect_type text_rect = {center_y-6, center_x-10, center_y+6, center_x+10};
+					rect_type text_rect;
 					char room_num[4];
+					text_rect.top = center_y-6; text_rect.left = center_x-10; text_rect.bottom = center_y+6; text_rect.right = center_x+10;
 					snprintf(room_num, sizeof(room_num), "%d", other_room);
 					method_5_rect(&text_rect, 0, color_4_red);
 					show_text_with_color(&text_rect, halign_center, valign_middle, room_num, color_15_brightwhite);
 				}
 			}
 		}
+		}
 
-		// start pos
 		if (level.start_room == drawn_room && level.start_pos == tilepos) {
 			byte start_dir = level.start_dir;
-			if (current_level == 1 || current_level == 13) start_dir ^= 0xFF; // falling/running entry
-			char* start_text = (start_dir == dir_0_right) ? "start\n->" : "start\n<-";
-			rect_type start_rect = {y,x-10,y+63,x+32+10};
+			char* start_text;
+			rect_type start_rect;
+			if (current_level == 1 || current_level == 13) start_dir ^= 0xFF;
+			start_text = (start_dir == dir_0_right) ? "start\n->" : "start\n<-";
+			start_rect.top = y; start_rect.left = x-10; start_rect.bottom = y+63; start_rect.right = x+32+10;
 			show_text_with_color(&start_rect, halign_center, valign_middle, start_text, color_14_brightyellow);
 		}
 
-		// guard info
-		//if (tilepos == level.guards_tile[drawn_room-1]) {
 		if (Guard.direction != dir_56_none && tilepos == Guard.curr_row * 10 + Guard.curr_col) {
-			//int screen_x = (Guard.x - 54) * 320 / 140;
+			int screen_x;
+			rect_type event_rect;
+			char guard_info[20];
 			loadshad();
 			load_frame_to_obj();
-			int screen_x = calc_screen_x_coord(obj_x);
-			// Put it above the guard's head.
+			screen_x = calc_screen_x_coord(obj_x);
 			if (Guard.direction == dir_0_right) screen_x -= 10; else screen_x += 10;
 
-			rect_type event_rect = {y+2, screen_x-16-10, y+63, screen_x+16+10};
-			char guard_info[20];
-			/*
-			snprintf(guard_info, sizeof(guard_info), "sk: %d\nhp: %d", guard_skill, guardhp_max);
-			show_text_with_color(&event_rect, halign_center, valign_middle, guard_info, color_12_brightred);
-			*/
+			event_rect.top = y+2; event_rect.left = screen_x-16-10; event_rect.bottom = y+63; event_rect.right = screen_x+16+10;
 			snprintf(guard_info, sizeof(guard_info), "s%d h%d", guard_skill, guardhp_max);
-			show_text_with_color(&event_rect, halign_center, valign_top, guard_info, /*color_12_brightred*/ color_14_brightyellow);
-			// Yellow text is more readable than red.
+			show_text_with_color(&event_rect, halign_center, valign_top, guard_info, color_14_brightyellow);
 		}
 
 	}
 
-	// room number
-	char room_num[6];
 	snprintf(room_num, sizeof(room_num), "%d", drawn_room);
-	rect_type text_rect = {10, 10, 21, 30};
+	text_rect.top = 10; text_rect.left = 10; text_rect.bottom = 21; text_rect.right = 30;
 	method_5_rect(&text_rect, 0, color_8_darkgray);
 	show_text_with_color(&text_rect, halign_center, valign_middle, room_num, color_15_brightwhite);
 
-	// grid lines
-	rect_type vline = {0,0,192,1};
+	vline.top = 0; vline.left = 0; vline.bottom = 192; vline.right = 1;
 	method_5_rect(&vline, 0, color_12_brightred);
-	rect_type hline = {3,0,4,320};
+	hline.top = 3; hline.left = 0; hline.bottom = 4; hline.right = 320;
 	method_5_rect(&hline, 0, color_12_brightred);
 }
 
 // Save a "screenshot" of the whole level.
 void save_level_screenshot(bool want_extras) {
-	// TODO: Disable in the intro or if a cutscene is active?
+	#define MAX_MAP_SIZE NUMBER_OF_ROOMS
+	bool processed[NUMBER_OF_ROOMS+1];
+	int queue[NUMBER_OF_ROOMS];
+	int queue_start = 0;
+	int queue_end = 1;
+	int min_x=0, max_x=0, min_y=0, max_y=0;
+	int clash_y, clash_x;
+	int map[MAX_MAP_SIZE][MAX_MAP_SIZE];
+	int map_width, map_height;
+	int image_width, image_height;
+	SDL_Surface* map_surface;
+	int old_room;
+	int result;
+	int room, direction, tilepos, x, y;
 
-	// Restrict this to cheat mode. After all, it's like using H/J/U/N or opening the level in an editor.
 	if (!cheats_enabled) return;
 
 	upside_down = 0;
 
-	//printf("random_seed = 0x%08X\n", random_seed);
-
-	// First, figure out where to put each room.
-	// We don't stop on broken room links, because the resulting map might still be usable.
-
-	bool processed[NUMBER_OF_ROOMS+1] = {false};
-	for (int room=1;room<=NUMBER_OF_ROOMS;room++) {
+	memset(processed, 0, sizeof(processed));
+	for (room=1;room<=NUMBER_OF_ROOMS;room++) {
 		xpos[room] = 0;
 		ypos[room] = 0;
 	}
 	xpos[drawn_room] = 0;
 	ypos[drawn_room] = 0;
-	// Mark the current room as processed so we don't add it later again.
-	// Otherwise, if the level has NUMBER_OF_ROOMS rooms, the queue will eventually contain NUMBER_OF_ROOMS+1 items, overflowing the array.
 	processed[drawn_room] = true;
-	int queue[NUMBER_OF_ROOMS] = {drawn_room}; // We start mapping from the current room.
-	int queue_start = 0;
-	int queue_end = 1;
+	queue[0] = drawn_room;
 
-	// Assemble a map based on room links.
 	while (queue_start < queue_end) {
-		int room = queue[queue_start];
+		int rm = queue[queue_start];
+		byte* roomlinks;
 		queue_start++;
-		byte* roomlinks = (byte*)(&level.roomlinks[room-1]);
-		for (int direction = 0; direction < 4; direction++) {
+		roomlinks = (byte*)(&level.roomlinks[rm-1]);
+		for (direction = 0; direction < 4; direction++) {
 			int other_room = roomlinks[direction];
 			if (other_room >= 1 && other_room <= NUMBER_OF_ROOMS && !processed[other_room]) {
-				int other_x = xpos[room] + dx[direction];
-				int other_y = ypos[room] + dy[direction];
+				int other_x = xpos[rm] + dx[direction];
+				int other_y = ypos[rm] + dy[direction];
 				xpos[other_room] = other_x;
 				ypos[other_room] = other_y;
 				processed[other_room] = true;
@@ -517,90 +517,57 @@ void save_level_screenshot(bool want_extras) {
 		}
 	}
 
-	// Find the bounds of the level.
-	// The starting room is mapped to x=0,y=0, so 0 is a good initial value for max and min.
-	int min_x=0, max_x=0, min_y=0, max_y=0;
-	for (int room=1;room<=NUMBER_OF_ROOMS;room++) {
+	for (room=1;room<=NUMBER_OF_ROOMS;room++) {
 		if (xpos[room] < min_x) min_x = xpos[room];
 		if (xpos[room] > max_x) max_x = xpos[room];
 		if (ypos[room] < min_y) min_y = ypos[room];
 		if (ypos[room] > max_y) max_y = ypos[room];
 	}
 
-	// Position for rooms that would clash with other rooms: Below the normally mapped rooms.
-	int clash_y = max_y + 1;
-	int clash_x = min_x;
+	clash_y = max_y + 1;
+	clash_x = min_x;
 
-	#define MAX_MAP_SIZE NUMBER_OF_ROOMS
-	int map[MAX_MAP_SIZE][MAX_MAP_SIZE] = {{0}};
-	for (int room=1;room<=NUMBER_OF_ROOMS;room++) {
+	memset(map, 0, sizeof(map));
+	for (room=1;room<=NUMBER_OF_ROOMS;room++) {
 		if (processed[room]) {
-			again:;
-			int y = ypos[room] - min_y;
-			int x = xpos[room] - min_x;
+			again:
+			y = ypos[room] - min_y;
+			x = xpos[room] - min_x;
 			if (x>=0 && y>=0 && x<MAX_MAP_SIZE && y<MAX_MAP_SIZE) {
 				if (map[y][x]) {
 					printf("Warning: room %d was mapped to the same place as room %d!\n", room, map[y][x]);
-					// Try to find some other place for this room:
-					// Put this room to the bottom of the map.
 					xpos[room] = clash_x;
 					ypos[room] = clash_y;
 					clash_x++;
 					if (xpos[room] > max_x) max_x = xpos[room];
 					if (ypos[room] > max_y) max_y = ypos[room];
-					goto again; // Force bounds check, just to be sure.
+					goto again;
 				}
 				map[y][x] = room;
 			} else {
-				// Probably impossible...
 				printf("Warning: room %d was mapped outside the map: x = %d, y = %d.\n", room, x, y);
 			}
 		}
 	}
 
-	int map_width = max_x-min_x+1;
-	int map_height = max_y-min_y+1;
+	map_width = max_x-min_x+1;
+	map_height = max_y-min_y+1;
 
-	// Debug printout of arrangement.
-	/*
-	printf("LEVEL %d\n", current_level);
-	for (int y=0;y<map_height;y++) {
-		for (int x=0;x<map_width;x++) {
-			int room = map[y][x];
-			if (room) {
-				printf(" %2d", room);
-			} else {
-				printf("   ");
-			}
-		}
-		printf("\n");
-	}
-	printf("\n");
-	*/
+	image_width = map_width*320;
+	image_height = map_height*189+3+8;
 
-	// Now we have the arrangement, let's make the picture!
-
-	int image_width = map_width*320;
-	int image_height = map_height*189+3+8;
-
-	SDL_Surface* map_surface = SDL_CreateRGBSurface(0, image_width, image_height, 32, Rmsk, Gmsk, Bmsk, Amsk);
+	map_surface = SDL_CreateRGBSurface(0, image_width, image_height, 32, Rmsk, Gmsk, Bmsk, Amsk);
 	if (map_surface == NULL) {
 		sdlperror("SDL_CreateRGBSurface (map_surface)");
-		//exit(1);
 		return;
 	}
 
-	// TODO: Background color for places where there is no room?
-
-	// TODO: Add an option for displaying all unreachable rooms?
-
 	has_trigger_potion = false;
 
-	// Is there a trigger potion on the level?
-	for (int room=1;room<=NUMBER_OF_ROOMS;room++) {
+	for (room=1;room<=NUMBER_OF_ROOMS;room++) {
 		if (processed[room]) {
 			get_room_address(room);
-			for (int tilepos=0;tilepos<30;tilepos++) {
+			for (tilepos=0;tilepos<30;tilepos++) {
 				int tile_type = curr_room_tiles[tilepos] & 0x1F;
 				if (tile_type == tiles_10_potion && curr_room_modif[tilepos] >> 3 == 6) {
 					has_trigger_potion = true;
@@ -611,23 +578,17 @@ void save_level_screenshot(bool want_extras) {
 
 	memset(event_used, 0, sizeof(event_used));
 
-	// Find out which door events are used:
-	for (int room=1;room<=NUMBER_OF_ROOMS;room++) {
+	for (room=1;room<=NUMBER_OF_ROOMS;room++) {
 		if (processed[room]) {
 			get_room_address(room);
-			for (int tilepos=0;tilepos<30;tilepos++) {
+			for (tilepos=0;tilepos<30;tilepos++) {
 				int tile_type = curr_room_tiles[tilepos] & 0x1F;
 				if (tile_type == tiles_6_closer || tile_type == tiles_15_opener
-					// These tiles are triggered even if they are not buttons!
-					// TODO: Force displaying of special trigger rooms even if they are unreachable via room links?
-					/*
-					|| (current_level == 1 && room == 5 && tilepos == 2) // triggered at start
-					|| (current_level == 13 && room == 24 && tilepos == 0) // triggered when player enters any room from the right after Jaffar died
-					*/
-					|| (has_trigger_potion && room == 8 && tilepos == 0) // triggered when player drinks an open potion
+					|| (has_trigger_potion && room == 8 && tilepos == 0)
 				) {
 					int modifier = curr_room_modif[tilepos];
-					for (int index = modifier; index < 256; index++) {
+					int index;
+					for (index = modifier; index < 256; index++) {
 						event_used[index] = true;
 						if (!get_doorlink_next(index)) break;
 					}
@@ -636,39 +597,17 @@ void save_level_screenshot(bool want_extras) {
 		}
 	}
 
-	// debug
-	/*
-	printf("Used events:");
-	for (int event=0;event<256;event++) {
-		if (event_used[event]) {
-			printf(" %d", event+EVENT_OFFSET);
-		}
-	}
-	printf("\n");
-	*/
-	/*
-	for (int event=0;event<256;event++) {
-		if (event_used[event]) {
-			printf("event %d: room %d tile %d %s\n",
-				event+EVENT_OFFSET, get_doorlink_room(event), get_doorlink_tile(event),
-				get_doorlink_next(event) ? "+next" : "");
-		}
-	}
-	*/
-
-	int old_room = drawn_room;
-	for (int y=0;y<map_height;y++) {
-		for (int x=0;x<map_width;x++) {
-			int room = map[y][x];
-			if (room) {
+	old_room = drawn_room;
+	for (y=0;y<map_height;y++) {
+		for (x=0;x<map_width;x++) {
+			int rm = map[y][x];
+			if (rm) {
 				SDL_Rect dest_rect;
 				dest_rect.x = x*320;
 				dest_rect.y = y*189;
-				switch_to_room(room);
+				switch_to_room(rm);
 
 				if (want_extras) draw_extras();
-
-				// TODO: Hide the status bar, or maybe show some custom text on it?
 
 				SDL_BlitSurface(onscreen_surface_, NULL, map_surface, &dest_rect);
 			}
@@ -677,12 +616,10 @@ void save_level_screenshot(bool want_extras) {
 	switch_to_room(old_room);
 
 	make_screenshot_filename();
-	int result = IMG_SavePNG(map_surface, screenshot_filename);
+	result = IMG_SavePNG(map_surface, screenshot_filename);
 	show_result(result, "level map");
 
 	SDL_FreeSurface(map_surface);
-
-	//printf("random_seed = 0x%08X\n", random_seed);
 }
 
 bool want_auto = false;

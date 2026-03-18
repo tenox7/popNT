@@ -30,6 +30,10 @@ CREDITS:
 #include "opl3.h"
 #include "math.h"
 
+#ifndef INT64_MAX
+#define INT64_MAX (((int64_t)0x7FFFFFFF << 32) | (int64_t)0xFFFFFFFF)
+#endif
+
 #define MAX_MIDI_CHANNELS 16
 #define MAX_OPL_VOICES 18
 
@@ -71,8 +75,12 @@ static float current_midi_tempo_modifier;
 //   The 'Jaffar enters' song has tempo 705882 (maybe this tempo was carefully fine-tuned)?
 // * Intro music: playback speed must match the title appearances/transitions.
 const float midi_tempo_modifiers[58] = {
-		[sound_53_story_3_Jaffar_comes] = -0.03f, // 3% speedup
-		[sound_54_intro_music] = 0.03f, // 3% slowdown
+	0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0,0,0, 0,0,0,
+	-0.03f,
+	0.03f,
+	0,0,0
 };
 
 // The hardcoded instrument is used as a fallback, if instrument data is not available for some reason.
@@ -94,7 +102,8 @@ static dword midi_read_variable_length(byte** buffer_position) {
 }
 
 void free_parsed_midi(parsed_midi_type* parsed_midi) {
-	for (int i = 0; i < parsed_midi->num_tracks; ++i) {
+	int i;
+	for (i = 0; i < parsed_midi->num_tracks; ++i) {
 		free(parsed_midi->tracks[i].events);
 	}
 	free(parsed_midi->tracks);
@@ -102,6 +111,13 @@ void free_parsed_midi(parsed_midi_type* parsed_midi) {
 }
 
 bool parse_midi(midi_raw_chunk_type* midi, parsed_midi_type* parsed_midi) {
+	word midi_format;
+	word num_tracks;
+	int division;
+	midi_raw_chunk_type* next_track_chunk;
+	byte last_event_type = 0;
+	int track_index;
+
 	parsed_midi->ticks_per_beat = 24;
 	if (memcmp(midi->chunk_type, "MThd", 4) != 0) {
 		printf("Warning: Tried to play a midi sound without the 'MThd' chunk header.\n");
@@ -112,28 +128,29 @@ bool parse_midi(midi_raw_chunk_type* midi, parsed_midi_type* parsed_midi) {
 		       SDL_SwapBE32(midi->chunk_length));
 		return 0;
 	}
-	word midi_format = SDL_SwapBE16(midi->header.format);
+	midi_format = SDL_SwapBE16(midi->header.format);
 	if (midi_format >= 2) {
 		printf("Warning: Unsupported midi format %d (only type 0 or 1 files are supported)\n", midi_format);
 		return 0;
 	}
-	word num_tracks = SDL_SwapBE16(midi->header.num_tracks);
+	num_tracks = SDL_SwapBE16(midi->header.num_tracks);
 	if (num_tracks < 1) {
 		printf("Warning: Midi sound does not have any tracks.\n");
 		return 0;
 	}
-	int division = SDL_SwapBE16(midi->header.time_division);
+	division = SDL_SwapBE16(midi->header.time_division);
 	if (division < 0) {
-		division = (-(division / 256)) * (division & 0xFF); // Translate time delta from the alternative SMTPE format.
+		division = (-(division / 256)) * (division & 0xFF);
 	}
 	parsed_midi->ticks_per_beat = division;
 
 	parsed_midi->tracks = calloc(1, num_tracks * sizeof(midi_track_type));
 	parsed_midi->num_tracks = num_tracks;
-	midi_raw_chunk_type* next_track_chunk = (midi_raw_chunk_type*) midi->header.tracks; // The first track chunk starts after the header chunk.
-	byte last_event_type = 0;
-	for (int track_index = 0; track_index < num_tracks; ++track_index) {
+	next_track_chunk = (midi_raw_chunk_type*) midi->header.tracks;
+	for (track_index = 0; track_index < num_tracks; ++track_index) {
 		midi_raw_chunk_type* track_chunk = next_track_chunk;
+		midi_track_type* track;
+		byte* buffer_position;
 		if (memcmp(track_chunk->chunk_type, "MTrk", 4) != 0) {
 			printf("Warning: midi track without 'MTrk' chunk header.\n");
 			free(parsed_midi->tracks);
@@ -141,28 +158,30 @@ bool parse_midi(midi_raw_chunk_type* midi, parsed_midi_type* parsed_midi) {
 			return 0;
 		}
 		next_track_chunk = (midi_raw_chunk_type*) (track_chunk->data + (dword) SDL_SwapBE32(track_chunk->chunk_length));
-		midi_track_type* track = &parsed_midi->tracks[track_index];
-		byte* buffer_position = track_chunk->data;
+		track = &parsed_midi->tracks[track_index];
+		buffer_position = track_chunk->data;
 		for (;;) {
+			void* new_track_events;
+			midi_event_type* event;
+			int num_channel_event_params = 1;
 			++track->num_events;
-			void* new_track_events = realloc(track->events, track->num_events * sizeof(midi_event_type));
+			new_track_events = realloc(track->events, track->num_events * sizeof(midi_event_type));
 			if (new_track_events == NULL) {
 				printf("parse_midi: realloc failed!");
 				quit(1);
 			}
 			track->events = new_track_events;
 
-			midi_event_type* event = &track->events[track->num_events - 1];
+			event = &track->events[track->num_events - 1];
 			event->delta_time = midi_read_variable_length(&buffer_position);
 			event->event_type = *buffer_position;
 			if (event->event_type & 0x80) {
 				if (event->event_type < 0xF8) last_event_type = event->event_type;
 				++buffer_position;
 			} else {
-				event->event_type = last_event_type; // Implicit use of the previous event type.
+				event->event_type = last_event_type;
 			}
-			// Determine the event type and parse the event.
-			int num_channel_event_params = 1;
+
 			switch (event->event_type & 0xF0) {
 				case 0x80: // note off
 				case 0x90: // note on
@@ -365,22 +384,24 @@ static word opl_reg_pair_offset(byte voice, byte op) {
 }
 
 static void opl_write_instrument(instrument_type* instrument, byte voice) {
-	opl_write_reg(0xC0 + reg_single_offsets[voice], instrument->FB_conn | 0x30 /* OPL3: L+R speaker enable */);
-	for (byte operator_index = 0; operator_index < 2; ++operator_index) {
-		operator_type* operator = &instrument->operators[operator_index];
+	byte operator_index;
+	opl_write_reg(0xC0 + reg_single_offsets[voice], instrument->FB_conn | 0x30);
+	for (operator_index = 0; operator_index < 2; ++operator_index) {
+		operator_type* oper = &instrument->operators[operator_index];
 		word op_reg = opl_reg_pair_offset(voice, operator_index);
-		opl_write_reg(0x20 + op_reg, operator->mul);
-		opl_write_reg(0x40 + op_reg, operator->ksl_tl);
-		opl_write_reg(0x60 + op_reg, operator->a_d);
-		opl_write_reg(0x80 + op_reg, operator->s_r);
-		opl_write_reg(0xE0 + op_reg, operator->waveform);
+		opl_write_reg(0x20 + op_reg, oper->mul);
+		opl_write_reg(0x40 + op_reg, oper->ksl_tl);
+		opl_write_reg(0x60 + op_reg, oper->a_d);
+		opl_write_reg(0x80 + op_reg, oper->s_r);
+		opl_write_reg(0xE0 + op_reg, oper->waveform);
 	}
 }
 
 static void midi_note_off(midi_event_type* event) {
 	byte note = event->channel.param1;
 	byte channel = event->channel.channel;
-	for (int voice = 0; voice < NUM_OPL_VOICES; ++voice) {
+	int voice;
+	for (voice = 0; voice < NUM_OPL_VOICES; ++voice) {
 		if (voice_channel[voice] == channel && voice_note[voice] == note) {
 			opl_write_reg_masked(0xB0 + reg_single_offsets[voice], 0, 0x20); // release key
 			voice_note[voice] = 0; // This voice is now free to be re-used.
@@ -407,11 +428,10 @@ static void midi_note_on(midi_event_type* event) {
 	if (velocity == 0) {
 		midi_note_off(event);
 	} else {
-		// Find a free OPL voice.
 		int voice = -1;
 		int test_voice = last_used_voice;
-		for (int i = 0; i < NUM_OPL_VOICES; ++i) {
-			// Don't use the same voice immediately again: that note is probably still be in the release phase.
+		int i;
+		for (i = 0; i < NUM_OPL_VOICES; ++i) {
 			++test_voice;
 			test_voice %= NUM_OPL_VOICES;
 			if (voice_note[test_voice] == 0) {
@@ -421,9 +441,15 @@ static void midi_note_on(midi_event_type* event) {
 		}
 		last_used_voice = voice;
 		if (voice >= 0) {
-//			printf("voice %d\n", voice);
+			float octaves_from_A4;
+			float frequency;
+			float f_number_float;
+			int block;
+			int f;
+			word reg_offset;
+			int instr_volume;
+			int carrier_volume;
 
-			// Set the correct instrument for this voice.
 			if (voice_instrument[voice] != instrument_id) {
 				opl_write_instrument(instrument, voice);
 				voice_instrument[voice] = instrument_id;
@@ -431,26 +457,19 @@ static void midi_note_on(midi_event_type* event) {
 			voice_note[voice] = note;
 			voice_channel[voice] = channel;
 
-			// Calculate frequency for a MIDI note: note number 69 = A4 = 440 Hz.
-			// However, Prince of Persia treats notes as one octave (12 semitones) lower than that, by default.
-			// A special MIDI SysEx event is used to change the frequency of all notes.
-			float octaves_from_A4 = ((int)event->channel.param1 - 69 - 12 + midi_semitones_higher) / 12.0f;
-			float frequency = powf(2.0f,  octaves_from_A4) * 440.0f;
-			float f_number_float = frequency * (float)(1 << 20) / 49716.0f;
-			int block = (int)(log2f(f_number_float) - 9) & 7;
-			int f = ((int)f_number_float >> block) & 1023;
-			word reg_offset = reg_single_offsets[voice];
-//			opl_write_reg_masked(0xB0 + reg_offset, 0, 0x20); // Turn note off first (should not be necessary)
+			octaves_from_A4 = ((int)event->channel.param1 - 69 - 12 + midi_semitones_higher) / 12.0f;
+			frequency = powf(2.0f,  octaves_from_A4) * 440.0f;
+			f_number_float = frequency * (float)(1 << 20) / 49716.0f;
+			block = (int)(log2f(f_number_float) - 9) & 7;
+			f = ((int)f_number_float >> block) & 1023;
+			reg_offset = reg_single_offsets[voice];
 			opl_write_reg(0xA0 + reg_offset, f & 0xFF);
 			opl_write_reg(0xB0 + reg_offset, 0x20 | (block << 2) | (f >> 8));
 
-			// The modulator always uses its own base volume level.
 			opl_write_reg_masked(0x40 + opl_reg_pair_offset(voice, 0), instrument->operators[0].ksl_tl, 0x3F);
 
-			// The carrier volume level is calculated as a combination of its base volume and the MIDI note velocity.
-			//PRINCE.EXE disassembly: seg009:6C3C
-			int instr_volume = instrument->operators[1].ksl_tl & 0x3F;
-			int carrier_volume = ((instr_volume + 64) * 225) / (velocity + 161);
+			instr_volume = instrument->operators[1].ksl_tl & 0x3F;
+			carrier_volume = ((instr_volume + 64) * 225) / (velocity + 161);
 			if (carrier_volume < 64) carrier_volume = 64;
 			if (carrier_volume > 127) carrier_volume = 127;
 			carrier_volume -= 64;
@@ -507,24 +526,28 @@ static void process_midi_event(midi_event_type* event) {
 
 }
 
-#define ONE_SECOND_IN_US 1000000LL
+#define ONE_SECOND_IN_US ((int64_t)1000000)
 
 void midi_callback(void *userdata, Uint8 *stream, int len) {
+	int frames_needed;
 	if (!midi_playing || len <= 0) return;
-	int frames_needed = len / 4;
+	frames_needed = len / 4;
 	while (frames_needed > 0) {
 		if (ticks_to_next_pause > 0) {
-			// Fill the audio buffer (we have already processed the MIDI events up till this point)
 			int64_t us_to_next_pause = ticks_to_next_pause * us_per_beat / ticks_per_beat;
 			int64_t us_needed = frames_needed * ONE_SECOND_IN_US / mixing_freq;
 			int64_t advance_us = MIN(us_to_next_pause, us_needed);
-			int available_frames = (int)(((advance_us * mixing_freq) + ONE_SECOND_IN_US - 1) / ONE_SECOND_IN_US); // round up.
+			int available_frames = (int)(((advance_us * mixing_freq) + ONE_SECOND_IN_US - 1) / ONE_SECOND_IN_US);
 			int advance_frames = MIN(available_frames, frames_needed);
-			advance_us = advance_frames * ONE_SECOND_IN_US / mixing_freq; // recalculate, in case the rounding up increased this.
-			short* temp_buffer = malloc(advance_frames * 4);
+			short* temp_buffer;
+			float ticks_elapsed_float;
+			int64_t ticks_elapsed;
+			int sample;
+			advance_us = advance_frames * ONE_SECOND_IN_US / mixing_freq;
+			temp_buffer = malloc(advance_frames * 4);
 			OPL3_GenerateStream(&opl_chip, temp_buffer, advance_frames);
 			if (is_sound_on && enable_music) {
-				for (int sample = 0; sample < advance_frames * 2; ++sample) {
+				for (sample = 0; sample < advance_frames * 2; ++sample) {
 					((short*)stream)[sample] += temp_buffer[sample];
 				}
 			}
@@ -532,10 +555,8 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 
 			frames_needed -= advance_frames;
 			stream += advance_frames * 4;
-			// Advance the current MIDI tick position.
-			// Keep track of the partial ticks that have elapsed so that we do not fall behind.
-			float ticks_elapsed_float = (float)advance_us * ticks_per_beat / us_per_beat;
-			int64_t ticks_elapsed = (int64_t) ticks_elapsed_float;
+			ticks_elapsed_float = (float)advance_us * ticks_per_beat / us_per_beat;
+			ticks_elapsed = (int64_t) ticks_elapsed_float;
 			midi_current_pos_fract_part += (ticks_elapsed_float - ticks_elapsed);
 			if (midi_current_pos_fract_part > 1.0f) {
 				midi_current_pos_fract_part -= 1.0f;
@@ -544,9 +565,9 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 			midi_current_pos += ticks_elapsed;
 			ticks_to_next_pause -= ticks_elapsed;
 		} else {
-			// Need to process MIDI events on one or more tracks.
 			int num_finished_tracks = 0;
-			for (int track_index = 0; track_index < num_midi_tracks; ++track_index) {
+			int track_index;
+			for (track_index = 0; track_index < num_midi_tracks; ++track_index) {
 				midi_track_type* track = &midi_tracks[track_index];
 
 				while (midi_current_pos >= track->next_pause_tick) {
@@ -554,10 +575,8 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 					if (events_left > 0) {
 						midi_event_type* event = &track->events[track->event_index];
 						track->event_index++;
-//						print_midi_event(track_index, track->event_index-1, event);
 						process_midi_event(event);
 
-						// Need to look ahead: must delay processing of the next event, if there is a pause.
 						if (events_left > 1) {
 							midi_event_type* next_event = &track->events[track->event_index];
 							if (next_event->delta_time != 0) {
@@ -565,25 +584,22 @@ void midi_callback(void *userdata, Uint8 *stream, int len) {
 							}
 						}
 					} else {
-						// reached the last event in this track.
 						++num_finished_tracks;
 						break;
 					}
 				}
 			}
 			if (num_finished_tracks >= num_midi_tracks) {
-				// All tracks have finished. Fill the remaining samples with silence and stop playback.
 				SDL_memset(stream, 0, frames_needed * 4);
-//				printf("midi_callback(): sound ended\n");
 				SDL_LockAudio();
 				midi_playing = 0;
 				free_parsed_midi(&parsed_midi);
 				SDL_UnlockAudio();
 				return;
 			} else {
-				// Need to delay (let the OPL chip do its work) until one of the tracks needs to process a MIDI event again.
 				int64_t first_next_pause_tick = INT64_MAX;
-				for (int i = 0; i < num_midi_tracks; ++i) {
+				int i;
+				for (i = 0; i < num_midi_tracks; ++i) {
 					midi_track_type* track = &midi_tracks[i];
 					if (track->event_index >= track->num_events || midi_current_pos >= track->next_pause_tick) continue;
 					first_next_pause_tick = MIN(first_next_pause_tick, track->next_pause_tick);
@@ -620,12 +636,13 @@ void free_midi_resources(void) {
 
 void init_midi() {
 	static bool initialized = false;
+	int size;
+	dat_type* dathandle;
 	if (initialized) return;
 	initialized = true;
 
-	instruments = &hardcoded_instrument; // unused if instruments can be loaded normally.
-	int size;
-	dat_type* dathandle = open_dat("PRINCE.DAT", 0);
+	instruments = &hardcoded_instrument;
+	dathandle = open_dat("PRINCE.DAT", 0);
 	instruments_data = load_from_opendats_alloc(1, "bin", NULL, &size);
 	if (!instruments_data) {
 		printf("Missing MIDI instruments data (resource 1)\n");
@@ -642,6 +659,8 @@ void init_midi() {
 }
 
 void play_midi_sound(sound_buffer_type* buffer) {
+	int voice;
+	int channel;
 	stop_midi();
 	if (buffer == NULL) return;
 	init_digi();
@@ -653,15 +672,14 @@ void play_midi_sound(sound_buffer_type* buffer) {
 		return;
 	}
 
-	// Initialize the OPL chip.
 	opl_reset(digi_audiospec->freq);
-	opl_write_reg(0x105, 0x01); // OPL3 enable (note: the PoP1 Adlib sounds don't actually use OPL3 extensions)
-	for (int voice = 0; voice < NUM_OPL_VOICES; ++voice) {
+	opl_write_reg(0x105, 0x01);
+	for (voice = 0; voice < NUM_OPL_VOICES; ++voice) {
 		opl_write_instrument(&instruments[0], voice);
 		voice_instrument[voice] = 0;
 		voice_note[voice] = 0;
 	}
-	for (int channel = 0; channel < MAX_MIDI_CHANNELS; channel++) {
+	for (channel = 0; channel < MAX_MIDI_CHANNELS; channel++) {
 		channel_instrument[channel] = channel;
 	}
 

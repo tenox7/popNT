@@ -203,8 +203,9 @@ void set_start_pos() {
 
 // seg003:02E6
 void find_start_level_door() {
+	short tilepos;
 	get_room_address(Kid.room);
-	for (short tilepos = 0; tilepos < 30; ++tilepos) {
+	for (tilepos = 0; tilepos < 30; ++tilepos) {
 		if ((curr_room_tiles[tilepos] & 0x1F) == tiles_16_level_door_left) {
 			start_level_door(Kid.room, tilepos);
 		}
@@ -272,14 +273,17 @@ void redraw_screen(int drawing_different_room) {
 #ifdef USE_COPYPROT
 		if (current_level == 15) {
 			// letters on potions level
+			{
+			short i;
 			current_target_surface = offscreen_surface;
-			for (short i = 0; i < 14; ++i) {
+			for (i = 0; i < 14; ++i) {
 				if (copyprot_room[i] == drawn_room) {
 					set_curr_pos((copyprot_tile[i] % 10 << 5) + 24, copyprot_tile[i] / 10 * 63 + 38);
 					draw_text_character(copyprot_letter[cplevel_entr[i]]);
 				}
 			}
 			current_target_surface = onscreen_surface_;
+		}
 		}
 #endif
 		is_blind_mode = 0;
@@ -310,7 +314,7 @@ void redraw_screen(int drawing_different_room) {
 
 #ifdef CHECK_TIMING
 typedef struct test_timing_state_type {
-	bool already_had_first_frame;
+	int already_had_first_frame;
 	Uint64 level_start_counter;
 	int ticks_left_at_level_start;
 	float seconds_left_at_level_start;
@@ -323,11 +327,10 @@ void test_timings(test_timing_state_type* state) {
 		state->ticks_left_at_level_start = (rem_min-1)*720 + rem_tick;
 		state->seconds_left_at_level_start = (1.0f / 60.0f) * (5 * state->ticks_left_at_level_start);
 		printf("Seconds left = %f\n", state->seconds_left_at_level_start);
-		state->already_had_first_frame = true;
+		state->already_had_first_frame = 1;
 	} else if (rem_tick % 12 == 11) {
 		Uint64 current_counter = SDL_GetPerformanceCounter();
 		float actual_seconds_elapsed = (float)(current_counter - state->level_start_counter) / (float)SDL_GetPerformanceFrequency();
-
 		int ticks_left = (rem_min-1)*720 + rem_tick;
 		float game_seconds_left = (1.0f / 60.0f) * (5 * ticks_left);
 		float game_seconds_elapsed = state->seconds_left_at_level_start - game_seconds_left;
@@ -433,10 +436,13 @@ void redraw_at_char() {
 		x_col_right = char_col_right;
 		x_col_left = char_col_left;
 	}
-	for (short tile_row = x_top_row; tile_row <= char_bottom_row; ++tile_row) {
-		for (short tile_col = x_col_left; tile_col <= x_col_right; ++tile_col) {
+	{
+	short tile_row, tile_col;
+	for (tile_row = x_top_row; tile_row <= char_bottom_row; ++tile_row) {
+		for (tile_col = x_col_left; tile_col <= x_col_right; ++tile_col) {
 			set_redraw_fore(get_tilepos(tile_col, tile_row), 1);
 		}
+	}
 	}
 	if (Char.charid == charid_0_kid) {
 		prev_char_top_row = char_top_row;
@@ -578,9 +584,10 @@ void check_mirror() {
 			load_frame();
 			check_mirror_image();
 			if (distance_mirror >= 0 && custom->show_mirror_image && Char.room == drawn_room) {
+				word clip_top;
 				load_frame_to_obj();
 				reset_obj_clip();
-				word clip_top = y_clip[Char.curr_row + 1];
+				clip_top = y_clip[Char.curr_row + 1];
 				if (clip_top < obj_y) {
 					obj_clip_top = clip_top;
 					obj_clip_left = (Char.curr_col << 5) + 9;
@@ -659,8 +666,10 @@ void bump_into_opponent() {
 
 // seg003:0913
 void pos_guards() {
-	for (short room1 = 0; room1 < ROOMCOUNT; ++room1) {
-		short guard_tile = level.guards_tile[room1];
+	short room1;
+	short guard_tile;
+	for (room1 = 0; room1 < ROOMCOUNT; ++room1) {
+		guard_tile = level.guards_tile[room1];
 		if (guard_tile < 30) {
 			level.guards_x[room1] = x_bump[(guard_tile % 10) + FIRST_ONSCREEN_COLUMN] + TILE_SIZEX;
 			level.guards_seq_hi[room1] = 0;
@@ -688,8 +697,10 @@ Possible results in can_guard_see_kid:
 		kid_frame != 0 && (kid_frame < frame_219_exit_stairs_3 || kid_frame >= 229) &&
 		Guard.direction != dir_56_none && Kid.alive < 0 && Guard.alive < 0 && Kid.room == Guard.room && Kid.curr_row == Guard.curr_row
 	) {
+		short left_pos;
+		short right_pos;
 		can_guard_see_kid = 2;
-		short left_pos = x_bump[Kid.curr_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
+		left_pos = x_bump[Kid.curr_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
 #ifdef FIX_DOORTOP_DISABLING_GUARD
 		if (fixes->fix_doortop_disabling_guard) {
 			// When the kid is hanging on the right side of a doortop, Kid.curr_col points at the doortop tile and a guard on the left side will see the prince.
@@ -698,7 +709,7 @@ Possible results in can_guard_see_kid:
 		}
 #endif
 		//printf("Kid.curr_col = %d, Kid.action = %d\n", Kid.curr_col, Kid.action);
-		short right_pos = x_bump[Guard.curr_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
+		right_pos = x_bump[Guard.curr_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
 		if (left_pos > right_pos) {
 			short temp = left_pos;
 			left_pos = right_pos;

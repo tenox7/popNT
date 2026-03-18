@@ -1190,16 +1190,24 @@ typedef struct names_list_type {
 	};
 } names_list_type;
 
-// Macros for declaring and initializing a names_list_type (for names lists and key/value pair lists).
-#define NAMES_LIST(listname, ...) const char listname[][MAX_OPTION_VALUE_NAME_LENGTH] = __VA_ARGS__; \
-names_list_type listname##_list = {.type=0, .names = {&listname, COUNT(listname)}}
+/* C89-compatible versions: use separate statements instead of variadic macros */
+#define NAMES_LIST_DECLARE(listname) \
+names_list_type listname##_list = {0, {(void*)&listname, 0}}
 
-#define KEY_VALUE_LIST(listname, ...) const key_value_type listname[] = __VA_ARGS__; \
-names_list_type listname##_list = {.type=1, .kv_pairs= {(key_value_type*)&listname, COUNT(listname)}}
+#define NAMES_LIST_FIXUP(listname) \
+listname##_list.names.count = COUNT(listname)
 
-//misaligned data == CRASH!! on PSP
-#ifndef __PSP__
+#define KEY_VALUE_LIST_DECLARE(listname) \
+names_list_type listname##_list = {1, {(void*)&listname, 0}}
+
+#define KEY_VALUE_LIST_FIXUP(listname) \
+listname##_list.kv_pairs.data = (key_value_type*)&listname; \
+listname##_list.kv_pairs.count = COUNT(listname)
+
+/* misaligned data == CRASH on RISC platforms (PSP, Alpha, MIPS, PPC) */
+#if !defined(__PSP__) && !defined(_M_ALPHA) && !defined(_M_MRX000) && !defined(_M_PPC) && defined(_M_IX86)
 #pragma pack(push,1)
+#define OPTS_PACKED 1
 #endif
 typedef struct fixes_options_type {
 	byte enable_crouch_after_climbing;
@@ -1364,8 +1372,9 @@ typedef struct custom_options_type {
 
 	byte no_mouse_in_ending;
 } custom_options_type;
-#ifndef __PSP__
+#ifdef OPTS_PACKED
 #pragma pack(pop)
+#undef OPTS_PACKED
 #endif
 
 typedef struct directory_listing_type directory_listing_type;

@@ -62,10 +62,12 @@ void find_exe_dir(void) {
 		NameFromLock( GetProgramDir(), exe_dir, sizeof(exe_dir) );
 	}
 #else
-	snprintf_check(exe_dir, sizeof(exe_dir), "%s", g_argv[0]);
+	{
 	char* last_slash = NULL;
 	char* pos = exe_dir;
-	for (char c = *pos; c != '\0'; ++pos, c = *pos) {
+	char c;
+	snprintf_check(exe_dir, sizeof(exe_dir), "%s", g_argv[0]);
+	for (c = *pos; c != '\0'; ++pos, c = *pos) {
 		if (c == '/' || c == '\\') {
 			last_slash = pos;
 		}
@@ -73,14 +75,16 @@ void find_exe_dir(void) {
 	if (last_slash != NULL) {
 		*last_slash = '\0';
 	}
+	}
 #endif
 	found_exe_dir = true;
 }
 
 #if ! (defined WIN32 || _WIN32 || WIN64 || _WIN64)
 void find_home_dir(void) {
+	const char* home_path;
 	if (found_home_dir) return;
-	const char* home_path = getenv("HOME");
+	home_path = getenv("HOME");
 	snprintf_check(home_dir, POP_MAX_PATH - 1, "%s/.%s", home_path, POP_DIR_NAME);
 	if(file_exists(home_dir))
 		found_home_dir = true;
@@ -103,13 +107,17 @@ const char* find_first_file_match(char* dst, int size, char* format, const char*
 #if defined WIN32 || _WIN32 || WIN64 || _WIN64
 	snprintf_check(dst, size, format, exe_dir, filename);
 #else
+	{
+	int i;
+	char* dirs[3];
 	find_home_dir();
 	find_share_dir();
-	char* dirs[3] = {home_dir, share_dir, exe_dir};
-	for (int i = 0; i < 3; i++) {
+	dirs[0] = home_dir; dirs[1] = share_dir; dirs[2] = exe_dir;
+	for (i = 0; i < 3; i++) {
 		snprintf_check(dst, size, format, dirs[i], filename);
 		if(file_exists(dst))
 			break;
+	}
 	}
 #endif
 	return (const char*) dst;
@@ -120,16 +128,20 @@ const char* locate_save_file_(const char* filename, char* dst, int size) {
 #if defined WIN32 || _WIN32 || WIN64 || _WIN64
 	snprintf_check(dst, size, "%s/%s", exe_dir, filename);
 #else
+	{
+	int i;
+	char* dirs[3];
 	find_home_dir();
 	find_share_dir();
-	char* dirs[3] = {home_dir, share_dir, exe_dir};
-	for (int i = 0; i < 3; i++) {
+	dirs[0] = home_dir; dirs[1] = share_dir; dirs[2] = exe_dir;
+	for (i = 0; i < 3; i++) {
 		struct stat path_stat;
 		int result = stat(dirs[i], &path_stat);
 		if (result == 0 && S_ISDIR(path_stat.st_mode) && access(dirs[i], W_OK) == 0) {
 			snprintf_check(dst, size, "%s/%s", dirs[i], filename);
 			break;
 		}
+	}
 	}
 #endif
 	return (const char*) dst;
@@ -211,8 +223,9 @@ struct directory_listing_type {
 directory_listing_type* create_directory_listing_and_find_first_file(const char* directory, const char* extension) {
 	directory_listing_type* directory_listing = calloc(1, sizeof(directory_listing_type));
 	char search_pattern[POP_MAX_PATH];
+	WCHAR* search_pattern_UTF16;
 	snprintf_check(search_pattern, POP_MAX_PATH, "%s/*.%s", directory, extension);
-	WCHAR* search_pattern_UTF16 = WIN_UTF8ToString(search_pattern);
+	search_pattern_UTF16 = WIN_UTF8ToString(search_pattern);
 	directory_listing->search_handle = FindFirstFileW( search_pattern_UTF16, &directory_listing->find_data );
 	SDL_free(search_pattern_UTF16);
 	if (directory_listing->search_handle != INVALID_HANDLE_VALUE) {
@@ -364,24 +377,18 @@ int key_test_quit() {
 
 // seg009:0E54
 const char* check_param(const char* param) {
-	// stub
-	for (short arg_index = 1; arg_index < g_argc; ++arg_index) {
-
+	short arg_index;
+	for (arg_index = 1; arg_index < g_argc; ++arg_index) {
+		static const char params_with_one_subparam[][16] = { "mod", "validate", /*...*/ };
 		char* curr_arg = g_argv[arg_index];
+		bool curr_arg_has_one_subparam = false;
+		int i;
 
-		// Filenames (e.g. replays) should never be a valid 'normal' param so we should skip these to prevent conflicts.
-		// We can lazily distinguish filenames from non-filenames by checking whether they have a dot in them.
-		// (Assumption: all relevant files, e.g. replay files, have some file extension anyway)
 		if (strchr(curr_arg, '.') != NULL) {
 			continue;
 		}
 
-		// List of params that expect a specifier ('sub-') arg directly after it (e.g. the mod's name, after "mod" arg)
-		// Such sub-args may conflict with the normal params (so, we should 'skip over' them)
-		static const char params_with_one_subparam[][16] = { "mod", "validate", /*...*/ };
-
-		bool curr_arg_has_one_subparam = false;
-		for (int i = 0; i < COUNT(params_with_one_subparam); ++i) {
+		for (i = 0; i < COUNT(params_with_one_subparam); ++i) {
 			if (strncasecmp(curr_arg, params_with_one_subparam[i], strlen(params_with_one_subparam[i])) == 0) {
 				curr_arg_has_one_subparam = true;
 				break;
@@ -416,14 +423,13 @@ static FILE* open_dat_from_root_or_data_dir(const char* filename) {
 	// if failed, try if the DAT file can be opened in the data/ directory, instead of the main folder
 	if (fp == NULL) {
 		char data_path[POP_MAX_PATH];
+		struct stat path_stat;
 		snprintf_check(data_path, sizeof(data_path), "data/%s", filename);
 
 		if (!file_exists(data_path)) {
 			find_first_file_match(data_path, sizeof(data_path), "%s/data/%s", filename);
 		}
 
-		// verify that this is a regular file and not a directory (otherwise, don't open)
-		struct stat path_stat;
 		stat(data_path, &path_stat);
 		if (S_ISREG(path_stat.st_mode)) {
 			fp = fopen(data_path, "rb");
@@ -437,17 +443,17 @@ int showmessage(char* text,int arg_4,void* arg_0);
 // seg009:0F58
 dat_type* open_dat(const char* filename, int optional) {
 	FILE* fp = NULL;
+	dat_header_type dat_header;
+	dat_table_type* dat_table = NULL;
+	dat_type* pointer;
 	if (!use_custom_levelset) {
 		fp = open_dat_from_root_or_data_dir(filename);
 	}
 	else {
-		// Don't complain about missing data files if we are only looking in the mod folder, because they might exist in the data folder.
-		// (This is possible only if open_dat() was called by load_all_sounds().)
 		if (!skip_mod_data_files && skip_normal_data_files) optional = 1;
 
 		if (!skip_mod_data_files && !(always_use_original_graphics && optional == 'G')) {
 			char filename_mod[POP_MAX_PATH];
-			// before checking the root directory, first try mods/MODNAME/
 			snprintf_check(filename_mod, sizeof(filename_mod), "%s/%s", mod_data_path, filename);
 			fp = fopen(filename_mod, "rb");
 		}
@@ -455,10 +461,8 @@ dat_type* open_dat(const char* filename, int optional) {
 			fp = open_dat_from_root_or_data_dir(filename);
 		}
 	}
-	dat_header_type dat_header;
-	dat_table_type* dat_table = NULL;
 
-	dat_type* pointer = (dat_type*) calloc(1, sizeof(dat_type));
+	pointer = (dat_type*) calloc(1, sizeof(dat_type));
 	snprintf_check(pointer->filename, sizeof(pointer->filename), "%s", filename);
 	pointer->next_dat = dat_chain_ptr;
 	dat_chain_ptr = pointer;
@@ -474,22 +478,20 @@ dat_type* open_dat(const char* filename, int optional) {
 		pointer->handle = fp;
 		pointer->dat_table = dat_table;
 	} else if (optional == 0) {
-		// showmessage will crash if we call it before certain things are initialized!
-		// Solution: In pop_main(), I moved the first open_dat() call after init_copyprot_dialog().
-		// /*
-		// There is no DAT file, verify whether the corresponding directory exists.
 		char filename_no_ext[POP_MAX_PATH];
-		// strip the .DAT file extension from the filename (use folders simply named TITLE, KID, VPALACE, etc.)
-		strncpy(filename_no_ext, pointer->filename, sizeof(filename_no_ext));
-		size_t len = strlen(filename_no_ext);
-		if (len >= 5 && filename_no_ext[len-4] == '.') {
-			filename_no_ext[len-4] = '\0'; // terminate, so ".DAT" is deleted from the filename
-		}
 		char foldername[POP_MAX_PATH];
-		snprintf_check(foldername,sizeof(foldername),"data/%s",filename_no_ext);
-		const char* data_path = locate_file(foldername);
+		const char* data_path;
 		struct stat path_stat;
-		int result = stat(data_path, &path_stat);
+		int result;
+		size_t len;
+		strncpy(filename_no_ext, pointer->filename, sizeof(filename_no_ext));
+		len = strlen(filename_no_ext);
+		if (len >= 5 && filename_no_ext[len-4] == '.') {
+			filename_no_ext[len-4] = '\0';
+		}
+		snprintf_check(foldername,sizeof(foldername),"data/%s",filename_no_ext);
+		data_path = locate_file(foldername);
+		result = stat(data_path, &path_stat);
 		if (result != 0 || !S_ISDIR(path_stat.st_mode)) {
 			char error_message[256];
 			snprintf_check(error_message, sizeof(error_message), "Cannot find a required data file: %s or folder: %s\nPress any key to quit.", filename, foldername);
@@ -528,14 +530,17 @@ word chtab_palette_bits = 1;
 
 // seg009:104E
 chtab_type* load_sprites_from_file(int resource,int palette_bits, int quit_on_error) {
-	//int has_palette_bits = 1;
-	dat_shpl_type* shpl = (dat_shpl_type*) load_from_opendats_alloc(resource, "pal", NULL, NULL);
+	dat_shpl_type* shpl;
+	dat_pal_type* pal_ptr;
+	int n_images;
+	size_t alloc_size;
+	chtab_type* chtab;
+	int i;
+	shpl = (dat_shpl_type*) load_from_opendats_alloc(resource, "pal", NULL, NULL);
 	if (shpl == NULL) {
 		printf("Can't load sprites from resource %d.\n", resource);
 		if (quit_on_error) {
 			char error_message[256];
-			// Unfortunately we don't know at this point which data file is missing. So we use the name of the last opened DAT file.
-			// It's also possible that the DAT file exists and it just doesn't contain the needed resource.
 			snprintf_check(error_message, sizeof(error_message), "Can't load sprites from resource %d.\nThe last opened data file is: %s\nPress any key to quit.", resource, dat_chain_ptr->filename);
 			showmessage(error_message, 1, &key_test_quit);
 			quit(1);
@@ -543,28 +548,21 @@ chtab_type* load_sprites_from_file(int resource,int palette_bits, int quit_on_er
 		return NULL;
 	}
 
-	dat_pal_type* pal_ptr = &shpl->palette;
+	pal_ptr = &shpl->palette;
 	if (graphics_mode == gmMcgaVga) {
 		if (palette_bits == 0) {
-			/*
-			palette_bits = add_palette_bits(pal_ptr->n_colors);
-			if (palette_bits == 0) {
-				quit(1);
-			}
-			*/
 		} else {
 			chtab_palette_bits |= palette_bits;
-			//has_palette_bits = 0;
 		}
 		pal_ptr->row_bits = palette_bits;
 	}
 
-	int n_images = shpl->n_images;
-	size_t alloc_size = sizeof(chtab_type) + sizeof(void *) * n_images;
-	chtab_type* chtab = (chtab_type*) malloc(alloc_size);
+	n_images = shpl->n_images;
+	alloc_size = sizeof(chtab_type) + sizeof(void *) * n_images;
+	chtab = (chtab_type*) malloc(alloc_size);
 	memset(chtab, 0, alloc_size);
 	chtab->n_images = n_images;
-	for (int i = 1; i <= n_images; i++) {
+	for (i = 1; i <= n_images; i++) {
 		SDL_Surface* image = load_image(resource + i, pal_ptr);
 //		if (image == NULL) printf(" failed");
 		if (image != NULL) {
@@ -591,11 +589,13 @@ chtab_type* load_sprites_from_file(int resource,int palette_bits, int quit_on_er
 // seg009:11A8
 void free_chtab(chtab_type *chtab_ptr) {
 	image_type* curr_image;
+	word n_images;
+	word id;
 	if (graphics_mode == gmMcgaVga && chtab_ptr->has_palette_bits) {
 		chtab_palette_bits &= ~ chtab_ptr->chtab_palette_bits;
 	}
-	word n_images = chtab_ptr->n_images;
-	for (word id = 0; id < n_images; ++id) {
+	n_images = chtab_ptr->n_images;
+	for (id = 0; id < n_images; ++id) {
 		curr_image = chtab_ptr->images[id];
 		if (curr_image) {
 			SDL_FreeSurface(curr_image);
@@ -683,15 +683,23 @@ void decompress_rle_ud(byte* destination,const byte* source,int dest_length,int 
 
 // seg009:90FA
 byte* decompress_lzg_lr(byte* dest,const byte* source,int dest_length) {
-	byte* window = (byte*) malloc(0x400);
+	byte* window;
+	byte* window_pos;
+	short remaining;
+	byte* window_end;
+	const byte* source_pos;
+	byte* dest_pos;
+	word mask;
+
+	window = (byte*) malloc(0x400);
 	if (window == NULL) return NULL;
 	memset(window, 0, 0x400);
-	byte* window_pos = window + 0x400 - 0x42; // bx
-	short remaining = dest_length; // cx
-	byte* window_end = window + 0x400; // dx
-	const byte* source_pos = source;
-	byte* dest_pos = dest;
-	word mask = 0;
+	window_pos = window + 0x400 - 0x42;
+	remaining = dest_length;
+	window_end = window + 0x400;
+	source_pos = source;
+	dest_pos = dest;
+	mask = 0;
 	do {
 		mask >>= 1;
 		if ((mask & 0xFF00) == 0) {
@@ -706,12 +714,15 @@ byte* decompress_lzg_lr(byte* dest,const byte* source,int dest_length) {
 			if (window_pos >= window_end) window_pos = window;
 			--remaining;
 		} else {
-			word copy_info = *source_pos;
+			word copy_info;
+			byte* copy_source;
+			byte copy_length;
+			copy_info = *source_pos;
 			source_pos++;
 			copy_info = (copy_info << 8) | *source_pos;
 			source_pos++;
-			byte* copy_source = window + (copy_info & 0x3FF);
-			byte copy_length = (copy_info >> 10) + 3;
+			copy_source = window + (copy_info & 0x3FF);
+			copy_length = (copy_info >> 10) + 3;
 			do {
 				*window_pos = *dest_pos = *copy_source;
 				window_pos++;
@@ -731,16 +742,25 @@ byte* decompress_lzg_lr(byte* dest,const byte* source,int dest_length) {
 
 // seg009:91AD
 byte* decompress_lzg_ud(byte* dest,const byte* source,int dest_length,int stride,int height) {
-	byte* window = (byte*) malloc(0x400);
+	byte* window;
+	byte* window_pos;
+	short remaining;
+	byte* window_end;
+	const byte* source_pos;
+	byte* dest_pos;
+	word mask;
+	short dest_end;
+
+	window = (byte*) malloc(0x400);
 	if (window == NULL) return NULL;
 	memset(window, 0, 0x400);
-	byte* window_pos = window + 0x400 - 0x42; // bx
-	short remaining = height; // cx
-	byte* window_end = window + 0x400; // dx
-	const byte* source_pos = source;
-	byte* dest_pos = dest;
-	word mask = 0;
-	short dest_end = dest_length - 1;
+	window_pos = window + 0x400 - 0x42;
+	remaining = height;
+	window_end = window + 0x400;
+	source_pos = source;
+	dest_pos = dest;
+	mask = 0;
+	dest_end = dest_length - 1;
 	do {
 		mask >>= 1;
 		if ((mask & 0xFF00) == 0) {
@@ -760,12 +780,15 @@ byte* decompress_lzg_ud(byte* dest,const byte* source,int dest_length,int stride
 			if (window_pos >= window_end) window_pos = window;
 			--dest_length;
 		} else {
-			word copy_info = *source_pos;
+			word copy_info;
+			byte* copy_source;
+			byte copy_length;
+			copy_info = *source_pos;
 			source_pos++;
 			copy_info = (copy_info << 8) | *source_pos;
 			source_pos++;
-			byte* copy_source = window + (copy_info & 0x3FF);
-			byte copy_length = (copy_info >> 10) + 3;
+			copy_source = window + (copy_info & 0x3FF);
+			copy_length = (copy_info >> 10) + 3;
 			do {
 				*window_pos = *dest_pos = *copy_source;
 				window_pos++;
@@ -820,13 +843,16 @@ byte* conv_to_8bpp(byte* in_data, int width, int height, int stride, int depth) 
 	byte* out_data = (byte*) malloc(width * height);
 	int pixels_per_byte = 8 / depth;
 	int mask = (1 << depth) - 1;
-	for (int y = 0; y < height; ++y) {
+	int y;
+	for (y = 0; y < height; ++y) {
 		byte* in_pos = in_data + y*stride;
 		byte* out_pos = out_data + y*width;
-		for (int x_pixel = 0, x_byte = 0; x_byte < stride; ++x_byte) {
+		int x_pixel, x_byte;
+		for (x_pixel = 0, x_byte = 0; x_byte < stride; ++x_byte) {
 			byte v = *in_pos;
 			int shift = 8;
-			for (int pixel_in_byte = 0; pixel_in_byte < pixels_per_byte && x_pixel < width; ++pixel_in_byte, ++x_pixel) {
+			int pixel_in_byte;
+			for (pixel_in_byte = 0; pixel_in_byte < pixels_per_byte && x_pixel < width; ++pixel_in_byte, ++x_pixel) {
 				shift -= depth;
 				*out_pos = (v >> shift) & mask;
 				++out_pos;
@@ -839,19 +865,24 @@ byte* conv_to_8bpp(byte* in_data, int width, int height, int stride, int depth) 
 
 image_type* decode_image(image_data_type* image_data, dat_pal_type* palette) {
 	int height = SDL_SwapLE16(image_data->height);
+	int width, flags, depth, cmeth, stride, dest_size, y, i;
+	byte* dest;
+	byte* image_8bpp;
+	image_type* image;
+	SDL_Color colors[16];
 	if (height == 0) return NULL;
-	int width = SDL_SwapLE16(image_data->width);
-	int flags = SDL_SwapLE16(image_data->flags);
-	int depth = ((flags >> 12) & 7) + 1;
-	int cmeth = (flags >> 8) & 0x0F;
-	int stride = calc_stride(image_data);
-	int dest_size = stride * height;
-	byte* dest = (byte*) malloc(dest_size);
+	width = SDL_SwapLE16(image_data->width);
+	flags = SDL_SwapLE16(image_data->flags);
+	depth = ((flags >> 12) & 7) + 1;
+	cmeth = (flags >> 8) & 0x0F;
+	stride = calc_stride(image_data);
+	dest_size = stride * height;
+	dest = (byte*) malloc(dest_size);
 	memset(dest, 0, dest_size);
 	decompr_img(dest, image_data, dest_size, cmeth, stride);
-	byte* image_8bpp = conv_to_8bpp(dest, width, height, stride, depth);
+	image_8bpp = conv_to_8bpp(dest, width, height, stride, depth);
 	free(dest); dest = NULL;
-	image_type* image = SDL_CreateRGBSurface(0, width, height, 8, 0, 0, 0, 0);
+	image = SDL_CreateRGBSurface(0, width, height, 8, 0, 0, 0, 0);
 	if (image == NULL) {
 		sdlperror("decode_image: SDL_CreateRGBSurface");
 		quit(1);
@@ -859,15 +890,13 @@ image_type* decode_image(image_data_type* image_data, dat_pal_type* palette) {
 	if (SDL_LockSurface(image) != 0) {
 		sdlperror("decode_image: SDL_LockSurface");
 	}
-	for (int y = 0; y < height; ++y) {
-		// fill image with data
+	for (y = 0; y < height; ++y) {
 		memcpy((byte*)image->pixels + y*image->pitch, image_8bpp + y*width, width);
 	}
 	SDL_UnlockSurface(image);
 
 	free(image_8bpp); image_8bpp = NULL;
-	SDL_Color colors[16];
-	for (int i = 0; i < 16; ++i) {
+	for (i = 0; i < 16; ++i) {
 		colors[i].r = palette->vga[i].r << 2;
 		colors[i].g = palette->vga[i].g << 2;
 		colors[i].b = palette->vga[i].b << 2;
@@ -885,11 +914,11 @@ image_type* decode_image(image_data_type* image_data, dat_pal_type* palette) {
 
 // seg009:121A
 image_type* load_image(int resource_id, dat_pal_type* palette) {
-	// stub
 	data_location result;
 	int size;
-	void* image_data = load_from_opendats_alloc(resource_id, "png", &result, &size);
+	void* image_data;
 	image_type* image = NULL;
+	image_data = load_from_opendats_alloc(resource_id, "png", &result, &size);
 	switch (result) {
 		case data_none:
 			return NULL;
@@ -1024,9 +1053,10 @@ void flip_not_ega(byte* memory,int height,int stride) {
 	byte* row_buffer = (byte*) malloc(stride);
 	byte* top_ptr;
 	byte* bottom_ptr;
+	short rem_rows;
 	bottom_ptr = top_ptr = memory;
 	bottom_ptr += (height - 1) * stride;
-	short rem_rows = height >> 1;
+	rem_rows = height >> 1;
 	do {
 		memcpy(row_buffer, top_ptr, stride);
 		memcpy(top_ptr, bottom_ptr, stride);
@@ -1177,37 +1207,38 @@ void draw_image_transp_vga(image_type* image,int xpos,int ypos) {
 static void load_font_character_offsets(rawfont_type* data) {
 	int n_chars = data->last_char - data->first_char + 1;
 	byte* pos = (byte*) &data->offsets[n_chars];
-	for (int index = 0; index < n_chars; ++index) {
-		data->offsets[index] = SDL_SwapLE16(pos - (byte*) data);
+	int index;
+	for (index = 0; index < n_chars; ++index) {
 		image_data_type* image_data = (image_data_type*) pos;
 		int image_bytes = SDL_SwapLE16(image_data->height) * calc_stride(image_data);
+		data->offsets[index] = SDL_SwapLE16(pos - (byte*) data);
 		pos = (byte*) &image_data->data + image_bytes;
 	}
 }
 
 font_type load_font_from_data(/*const*/ rawfont_type* data) {
 	font_type font;
+	int n_chars;
+	chtab_type* chtab;
+	dat_pal_type dat_pal;
+	int index, chr;
 	font.first_char = data->first_char;
 	font.last_char = data->last_char;
 	font.height_above_baseline = SDL_SwapLE16(data->height_above_baseline);
 	font.height_below_baseline = SDL_SwapLE16(data->height_below_baseline);
 	font.space_between_lines = SDL_SwapLE16(data->space_between_lines);
 	font.space_between_chars = SDL_SwapLE16(data->space_between_chars);
-	int n_chars = font.last_char - font.first_char + 1;
-	// Allow loading a font even if the offsets for each character image were not supplied in the raw data.
+	n_chars = font.last_char - font.first_char + 1;
 	if (SDL_SwapLE16(data->offsets[0]) == 0) {
 		load_font_character_offsets(data);
 	}
-	chtab_type* chtab = malloc(sizeof(chtab_type) + sizeof(image_type*) * n_chars);
-	// Make a dummy palette for decode_image().
-	dat_pal_type dat_pal;
+	chtab = malloc(sizeof(chtab_type) + sizeof(image_type*) * n_chars);
 	memset(&dat_pal, 0, sizeof(dat_pal));
-	dat_pal.vga[1].r = dat_pal.vga[1].g = dat_pal.vga[1].b = 0x3F; // white
-	for (int index = 0, chr = data->first_char; chr <= data->last_char; ++index, ++chr) {
-		/*const*/ image_data_type* image_data = (/*const*/ image_data_type*)((/*const*/ byte*)data + SDL_SwapLE16(data->offsets[index]));
-		//image_data->flags=0;
-		if (image_data->height == SDL_SwapLE16(0)) image_data->height = SDL_SwapLE16(1); // HACK: decode_image() returns NULL if height==0.
+	dat_pal.vga[1].r = dat_pal.vga[1].g = dat_pal.vga[1].b = 0x3F;
+	for (index = 0, chr = data->first_char; chr <= data->last_char; ++index, ++chr) {
+		image_data_type* image_data = (image_data_type*)((byte*)data + SDL_SwapLE16(data->offsets[index]));
 		image_type* image;
+		if (image_data->height == SDL_SwapLE16(0)) image_data->height = SDL_SwapLE16(1);
 		chtab->images[index] = image = decode_image(image_data, &dat_pal);
 		if (SDL_SetColorKey(image, SDL_TRUE, 0) != 0) {
 			sdlperror("load_font_from_data: SDL_SetColorKey");
@@ -1260,8 +1291,9 @@ int find_linebreak(const char* text,int length,int break_width,int x_align) {
 	while (curr_char_pos < length) {
 		curr_line_width += get_char_width(*text_pos);
 		if (curr_line_width <= break_width) {
+			char curr_char;
 			++curr_char_pos;
-			char curr_char = *text_pos;
+			curr_char = *text_pos;
 			text_pos++;
 			if (curr_char == '\n') {
 				return curr_char_pos;
@@ -1341,30 +1373,29 @@ int draw_cstring(const char* string) {
 
 // seg009:3F01
 const rect_type* draw_text(const rect_type* rect_ptr,int x_align,int y_align,const char* text,int length) {
-	//printf("going to do draw_text()...\n");
 	short rect_top;
 	short rect_height;
 	short rect_width;
-	//textinfo_type var_C;
 	short num_lines;
 	short font_line_distance;
-	//hide_cursor();
-	//get_textinfo(&var_C);
-	set_clip_rect(rect_ptr);
-	rect_width = rect_ptr->right - rect_ptr->left;
-	rect_top = rect_ptr->top;
-	rect_height = rect_ptr->bottom - rect_ptr->top;
-	num_lines = 0;
 	int rem_length = length;
 	const char* line_start = text;
 	#define MAX_LINES 100
 	const char* line_starts[MAX_LINES];
 	int line_lengths[MAX_LINES];
+	font_type* font;
+	int text_height;
+	int text_top;
+	int i;
+	set_clip_rect(rect_ptr);
+	rect_width = rect_ptr->right - rect_ptr->left;
+	rect_top = rect_ptr->top;
+	rect_height = rect_ptr->bottom - rect_ptr->top;
+	num_lines = 0;
 	do {
 		int line_length = find_linebreak(line_start, rem_length, rect_width, x_align);
 		if (line_length == 0) break;
 		if (num_lines >= MAX_LINES) {
-			//... ERROR!
 			printf("draw_text(): Too many lines!\n");
 			quit(1);
 		}
@@ -1374,22 +1405,19 @@ const rect_type* draw_text(const rect_type* rect_ptr,int x_align,int y_align,con
 		line_start += line_length;
 		rem_length -= line_length;
 	} while(rem_length);
-	font_type* font = textstate.ptr_font;
+	font = textstate.ptr_font;
 	font_line_distance = font->height_above_baseline + font->height_below_baseline + font->space_between_lines;
-	int text_height = font_line_distance * num_lines - font->space_between_lines;
-	int text_top = rect_top;
+	text_height = font_line_distance * num_lines - font->space_between_lines;
+	text_top = rect_top;
 	if (y_align >= 0) {
 		if (y_align <= 0) {
-			// middle
-			// The +1 is for simulating SHR + ADC/SBB.
 			text_top += (rect_height+1)/2 - (text_height+1)/2;
 		} else {
-			// bottom
 			text_top += rect_height - text_height;
 		}
 	}
 	textstate.current_y = text_top + font->height_above_baseline;
-	for (int i = 0; i < num_lines; ++i) {
+	for (i = 0; i < num_lines; ++i) {
 		const char* line_pos = line_starts[i];
 		int line_length = line_lengths[i];
 		if (x_align < 0 &&
@@ -1409,6 +1437,7 @@ const rect_type* draw_text(const rect_type* rect_ptr,int x_align,int y_align,con
 				--line_length;
 			}
 		}
+		{
 		int line_width = get_line_width(line_pos,line_length);
 		int text_left = rect_ptr->left;
 		if (x_align >= 0) {
@@ -1421,8 +1450,8 @@ const rect_type* draw_text(const rect_type* rect_ptr,int x_align,int y_align,con
 			}
 		}
 		textstate.current_x = text_left;
-		//printf("going to draw text line...\n");
 		draw_text_line(line_pos,line_length);
+		}
 		textstate.current_y += font_line_distance;
 	}
 	reset_clip_rect();
@@ -1556,27 +1585,21 @@ void dialog_method_2_frame(dialog_type* dialog) {
 	short text_bottom = dialog->text_rect.bottom;
 	short text_right = dialog->text_rect.right;
 	// Draw outer border
-	rect = (rect_type) { peel_top, peel_left, peel_bottom - shadow_bottom, peel_right - shadow_right };
+	rect.top = peel_top; rect.left = peel_left; rect.bottom = peel_bottom - shadow_bottom; rect.right = peel_right - shadow_right;
 	draw_rect(&rect, color_0_black);
-	// Draw shadow (right)
-	rect = (rect_type) { text_top, peel_right - shadow_right, peel_bottom, peel_right };
-	draw_rect(&rect, get_text_color(0, color_8_darkgray /*dialog's shadow*/, 0));
-	// Draw shadow (bottom)
-	rect = (rect_type) { peel_bottom - shadow_bottom, text_left, peel_bottom, peel_right };
-	draw_rect(&rect, get_text_color(0, color_8_darkgray /*dialog's shadow*/, 0));
-	// Draw inner border (left)
-	rect = (rect_type) { peel_top + outer_border, peel_left + outer_border, text_bottom, text_left };
+	rect.top = text_top; rect.left = peel_right - shadow_right; rect.bottom = peel_bottom; rect.right = peel_right;
+	draw_rect(&rect, get_text_color(0, color_8_darkgray, 0));
+	rect.top = peel_bottom - shadow_bottom; rect.left = text_left; rect.bottom = peel_bottom; rect.right = peel_right;
+	draw_rect(&rect, get_text_color(0, color_8_darkgray, 0));
+	rect.top = peel_top + outer_border; rect.left = peel_left + outer_border; rect.bottom = text_bottom; rect.right = text_left;
 	draw_rect(&rect, color_15_brightwhite);
-	// Draw inner border (top)
-	rect = (rect_type) { peel_top + outer_border, text_left, text_top, text_right + dialog->settings->right_border - outer_border };
+	rect.top = peel_top + outer_border; rect.left = text_left; rect.bottom = text_top; rect.right = text_right + dialog->settings->right_border - outer_border;
 	draw_rect(&rect, color_15_brightwhite);
-	// Draw inner border (right)
 	rect.top = text_top;
 	rect.left =  text_right;
-	rect.bottom = text_bottom + bottom_border - outer_border;           // (rect.right stays the same)
+	rect.bottom = text_bottom + bottom_border - outer_border;
 	draw_rect(&rect, color_15_brightwhite);
-	// Draw inner border (bottom)
-	rect = (rect_type) { text_bottom, peel_left + outer_border, text_bottom + bottom_border - outer_border, text_right };
+	rect.top = text_bottom; rect.left = peel_left + outer_border; rect.bottom = text_bottom + bottom_border - outer_border; rect.right = text_right;
 	draw_rect(&rect, color_15_brightwhite);
 }
 
@@ -1622,28 +1645,31 @@ int input_str(const rect_type* rect,char* buffer,int max_length,const char *init
 	// Display the screen keyboard if supported.
 	//SDL_SetHint(SDL_HINT_IME_SHOW_UI, "1");
 	SDL_Rect sdlrect;
-	rect_to_sdlrect(rect, &sdlrect);
-	SDL_SetTextInputRect(&sdlrect);
-	SDL_StartTextInput();
-
 	word key;
 	short current_xpos;
 	short length = 0;
 	short cursor_visible = 0;
+	short init_length;
+	short ypos;
+	rect_to_sdlrect(rect, &sdlrect);
+	SDL_SetTextInputRect(&sdlrect);
+	SDL_StartTextInput();
+
 	draw_rect(rect, bgcolor);
-	short init_length = strlen(initial);
+	init_length = strlen(initial);
 	if (has_initial) {
 		strcpy(buffer, initial);
 		length = init_length;
 	}
 	current_xpos = rect->left + arg_4;
-	short ypos = get_text_center_y(rect);
+	ypos = get_text_center_y(rect);
 	set_curr_pos(current_xpos, ypos);
 	/*current_target_surface->*/textstate.textcolor = color;
 	draw_cstring(initial);
 	//restore_curr_pos?();
 	current_xpos += get_cstring_width(initial) + (init_length != 0) * arg_4;
 	do {
+		char entered_char;
 		key = 0;
 		do {
 			if (cursor_visible) {
@@ -1658,7 +1684,7 @@ int input_str(const rect_type* rect,char* buffer,int max_length,const char *init
 					draw_text_cursor(current_xpos, ypos, color);
 					cursor_visible = !cursor_visible;
 				}
-				if (key == SDL_SCANCODE_RETURN) { // Enter
+				if (key == SDL_SCANCODE_RETURN) {
 					buffer[length] = 0;
 					SDL_StopTextInput();
 					return length;
@@ -1666,8 +1692,7 @@ int input_str(const rect_type* rect,char* buffer,int max_length,const char *init
 			}
 			while (!has_timer_stopped(timer_0) && (key = key_test_quit()) == 0) idle();
 		} while (1);
-		// Only use the printable ASCII chars (UTF-8 encoding)
-		char entered_char = last_text_input <= 0x7E ? last_text_input : 0;
+		entered_char = last_text_input <= 0x7E ? last_text_input : 0;
 		clear_kbd_buf();
 
 		if (key == SDL_SCANCODE_ESCAPE) { // Esc
@@ -1797,22 +1822,24 @@ void restore_peel(peel_type* peel_ptr) {
 
 // seg009:3BE9
 peel_type* read_peel_from_screen(const rect_type* rect) {
-	// stub
 	peel_type* result = calloc(1, sizeof(peel_type));
-	//memset(&result, 0, sizeof(result));
+	SDL_Surface* peel_surface;
+	rect_type target_rect;
 	result->rect = *rect;
 #ifndef USE_ALPHA
-	SDL_Surface* peel_surface = SDL_CreateRGBSurface(0, rect->right - rect->left, rect->bottom - rect->top,
+	peel_surface = SDL_CreateRGBSurface(0, rect->right - rect->left, rect->bottom - rect->top,
 	                                                 24, Rmsk, Gmsk, Bmsk, 0);
 #else
-	SDL_Surface* peel_surface = SDL_CreateRGBSurface(0, rect->right - rect->left, rect->bottom - rect->top, 32, Rmsk, Gmsk, Bmsk, Amsk);
+	peel_surface = SDL_CreateRGBSurface(0, rect->right - rect->left, rect->bottom - rect->top, 32, Rmsk, Gmsk, Bmsk, Amsk);
 #endif
 	if (peel_surface == NULL) {
 		sdlperror("read_peel_from_screen: SDL_CreateRGBSurface");
 		quit(1);
 	}
 	result->peel = peel_surface;
-	rect_type target_rect = {0, 0, rect->right - rect->left, rect->bottom - rect->top};
+	target_rect.top = 0; target_rect.left = 0;
+	target_rect.right = rect->right - rect->left;
+	target_rect.bottom = rect->bottom - rect->top;
 	method_1_blit_rect(result->peel, current_target_surface, &target_rect, rect, 0);
 	return result;
 }
@@ -1822,10 +1849,11 @@ int intersect_rect(rect_type* output,const rect_type* input1,const rect_type* in
 	short left = MAX(input1->left, input2->left);
 	short right = MIN(input1->right, input2->right);
 	if (left < right) {
+		short top, bottom;
 		output->left = left;
 		output->right = right;
-		short top = MAX(input1->top, input2->top);
-		short bottom = MIN(input1->bottom, input2->bottom);
+		top = MAX(input1->top, input2->top);
+		bottom = MIN(input1->bottom, input2->bottom);
 		if (top < bottom) {
 			output->top = top;
 			output->bottom = bottom;
@@ -1940,18 +1968,17 @@ void generate_square_wave(byte* stream, float note_freq, int samples) {
 	int samples_left = samples;
 	while (samples_left > 0) {
 		if (square_wave_samples_since_last_flip > half_period_in_samples) {
-			// Produce a square wave by flipping the signal.
 			square_wave_state = ~square_wave_state;
-			// Note(Falcury): not completely sure that this is the right way to prevent glitches in the sound...
-			// Because I can still hear some hiccups, e.g. in the music. Especially when switching between notes.
 			square_wave_samples_since_last_flip -= half_period_in_samples;
 		} else {
 			int samples_until_next_flip = (int)(half_period_in_samples - square_wave_samples_since_last_flip);
-			++samples_until_next_flip; // round up.
+			int samples_to_emit;
+			int i;
+			++samples_until_next_flip;
 
-			int samples_to_emit = MIN(samples_until_next_flip, samples_left);
-			for (int i = 0; i < samples_to_emit * channels; ++i) {
-				*(short*)stream = square_wave_state;
+			samples_to_emit = MIN(samples_until_next_flip, samples_left);
+			for (i = 0; i < samples_to_emit * channels; ++i) {
+				WRITE_S16(stream, square_wave_state);
 				stream += sizeof(short);
 			}
 			samples_left -= samples_to_emit;
@@ -1964,18 +1991,24 @@ void speaker_callback(void *userdata, Uint8 *stream, int len) {
 	int output_channels = digi_audiospec->channels;
 	int bytes_per_sample = sizeof(short) * output_channels;
 	int samples_requested = len / bytes_per_sample;
+	word tempo;
+	int total_samples_left;
 
 	if (current_speaker_sound == NULL) return;
-	word tempo = SDL_SwapLE16(current_speaker_sound->tempo);
+	tempo = SDL_SwapLE16(current_speaker_sound->tempo);
 
-	int total_samples_left = samples_requested;
+	total_samples_left = samples_requested;
 	while (total_samples_left > 0) {
 		note_type* note = current_speaker_sound->notes + speaker_note_index;
+		int note_length_in_samples;
+		int note_samples_to_emit;
+		size_t copy_len;
+		int note_samples_emitted;
 		if (SDL_SwapLE16(note->frequency) == 0x12 /*end*/) {
+			SDL_Event event;
 			speaker_playing = 0;
 			current_speaker_sound = NULL;
 			speaker_note_index = 0;
-			SDL_Event event;
 			memset(&event, 0, sizeof(event));
 			event.type = SDL_USEREVENT;
 			event.user.code = userevent_SOUND;
@@ -1983,10 +2016,10 @@ void speaker_callback(void *userdata, Uint8 *stream, int len) {
 			return;
 		}
 
-		int note_length_in_samples = (note->length * digi_audiospec->freq) / tempo;
-		int note_samples_to_emit = MIN(note_length_in_samples - current_speaker_note_samples_already_emitted, total_samples_left);
+		note_length_in_samples = (note->length * digi_audiospec->freq) / tempo;
+		note_samples_to_emit = MIN(note_length_in_samples - current_speaker_note_samples_already_emitted, total_samples_left);
 		total_samples_left -= note_samples_to_emit;
-		size_t copy_len = (size_t)note_samples_to_emit * bytes_per_sample;
+		copy_len = (size_t)note_samples_to_emit * bytes_per_sample;
 		if (SDL_SwapLE16(note->frequency) <= 0x01 /*rest*/) {
 			memset(stream, digi_audiospec->silence, copy_len);
 		} else {
@@ -1994,7 +2027,7 @@ void speaker_callback(void *userdata, Uint8 *stream, int len) {
 		}
 		stream += copy_len;
 
-		int note_samples_emitted = current_speaker_note_samples_already_emitted + note_samples_to_emit;
+		note_samples_emitted = current_speaker_note_samples_already_emitted + note_samples_to_emit;
 		if (note_samples_emitted < note_length_in_samples) {
 			current_speaker_note_samples_already_emitted += note_samples_to_emit;
 		} else {
@@ -2059,10 +2092,9 @@ void ogg_callback(void *userdata, Uint8 *stream, int len) {
 			memset(stream + bytes_filled, digi_audiospec->silence, remaining_bytes);
 		}
 	} else {
-		// If sound is off: Mute the sound, but keep track of where we are.
+		byte* discarded_samples;
 		memset(stream, digi_audiospec->silence, len);
-		// Let the decoder run normally (to advance the position), but discard the result.
-		byte* discarded_samples = alloca(len);
+		discarded_samples = alloca(len);
 		samples_filled = stb_vorbis_get_samples_short_interleaved(ogg_decoder, output_channels,
 																  (short*) discarded_samples, len / sizeof(short));
 	}
@@ -2153,13 +2185,12 @@ void audio_callback(void* userdata, Uint8* stream_orig, int len_orig) {
 
 int digi_unavailable = 0;
 void init_digi() {
-	if (digi_unavailable) return;
-	if (digi_audiospec != NULL) return;
-	// Open the audio device. Called once.
-	//printf("init_digi(): called\n");
-
 	SDL_AudioFormat desired_audioformat;
 	SDL_version version;
+	SDL_AudioSpec *desired;
+	if (digi_unavailable) return;
+	if (digi_audiospec != NULL) return;
+
 	SDL_GetVersion(&version);
 	//printf("SDL Version = %d.%d.%d\n", version.major, version.minor, version.patch);
 	if (version.major <= 2 && version.minor <= 0 && version.patch <= 3) {
@@ -2172,7 +2203,6 @@ void init_digi() {
 		desired_audioformat = AUDIO_S16SYS;
 	}
 
-	SDL_AudioSpec *desired;
 	desired = (SDL_AudioSpec *)malloc(sizeof(SDL_AudioSpec));
 	memset(desired, 0, sizeof(SDL_AudioSpec));
 	desired->freq = digi_samplerate; //buffer->digi.sample_rate;
@@ -2196,8 +2226,9 @@ const int max_sound_id = 58;
 
 void load_sound_names() {
 	const char* names_path = locate_file("data/music/names.txt");
+	FILE* fp;
 	if (sound_names != NULL) return;
-	FILE* fp = fopen(names_path,"rt");
+	fp = fopen(names_path,"rt");
 	if (fp==NULL) return;
 	sound_names = (char**) calloc(sizeof(char*) * max_sound_id, 1);
 	while (!feof(fp)) {
@@ -2239,8 +2270,12 @@ sound_buffer_type* load_sound(int index) {
 			do {
 				FILE* fp = NULL;
 				char filename[POP_MAX_PATH];
+				struct stat info;
+				size_t file_size;
+				byte* file_contents;
+				int error = 0;
+				stb_vorbis* decoder;
 				if (!skip_mod_data_files) {
-					// before checking the root directory, first try mods/MODNAME/
 					snprintf_check(filename, sizeof(filename), "%s/music/%s.ogg", mod_data_path, sound_name(index));
 					fp = fopen(filename, "rb");
 				}
@@ -2251,12 +2286,10 @@ sound_buffer_type* load_sound(int index) {
 				if (fp == NULL) {
 					break;
 				}
-				// Read the entire file (undecoded) into memory.
-				struct stat info;
 				if (fstat(fileno(fp), &info))
 					break;
-				size_t file_size = (size_t) MAX(0, info.st_size);
-				byte* file_contents = malloc(file_size);
+				file_size = (size_t) MAX(0, info.st_size);
+				file_contents = malloc(file_size);
 				if (fread(file_contents, 1, file_size, fp) != file_size) {
 					free(file_contents);
 					fclose(fp);
@@ -2264,11 +2297,7 @@ sound_buffer_type* load_sound(int index) {
 				}
 				fclose(fp);
 
-				// Decoding the entire file immediately would make the loading time much longer.
-				// However, we can also create the decoder now, and only use it when we are actually playing the file.
-				// (In the audio callback, we'll decode chunks of samples to the output stream, as needed).
-				int error = 0;
-				stb_vorbis* decoder = stb_vorbis_open_memory(file_contents, (int)file_size, &error, NULL);
+				decoder = stb_vorbis_open_memory(file_contents, (int)file_size, &error, NULL);
 				if (decoder == NULL) {
 					printf("Error %d when creating decoder from file \"%s\"!\n", error, filename);
 					free(file_contents);
@@ -2356,29 +2385,36 @@ bool determine_wave_version(sound_buffer_type *buffer, waveinfo_type* waveinfo) 
 }
 
 sound_buffer_type* convert_digi_sound(sound_buffer_type* digi_buffer) {
+	waveinfo_type waveinfo;
+	float freq_ratio;
+	int source_length;
+	int expanded_frames;
+	int expanded_length;
+	sound_buffer_type* converted_buffer;
+	byte* source;
+	short* dest;
+	int i;
 	init_digi();
 	if (digi_unavailable) return NULL;
-	waveinfo_type waveinfo;
 	if (false == determine_wave_version(digi_buffer, &waveinfo)) return NULL;
 
-	float freq_ratio = (float)waveinfo.sample_rate /  (float)digi_audiospec->freq;
+	freq_ratio = (float)waveinfo.sample_rate /  (float)digi_audiospec->freq;
 
-	int source_length = waveinfo.sample_count;
-	int expanded_frames = source_length * digi_audiospec->freq / waveinfo.sample_rate;
-	int expanded_length = expanded_frames * 2 * sizeof(short);
-	sound_buffer_type* converted_buffer = malloc(sizeof(sound_buffer_type) + expanded_length);
+	source_length = waveinfo.sample_count;
+	expanded_frames = source_length * digi_audiospec->freq / waveinfo.sample_rate;
+	expanded_length = expanded_frames * 2 * sizeof(short);
+	converted_buffer = malloc(sizeof(sound_buffer_type) + expanded_length);
 
 	converted_buffer->type = sound_digi_converted;
 	converted_buffer->converted.length = expanded_length;
 
-	byte* source = waveinfo.samples;
-	//short* dest = converted_buffer->converted.samples;
-	short* dest = malloc(sizeof(short) * converted_buffer->converted.length);
+	source = waveinfo.samples;
+	dest = malloc(sizeof(short) * converted_buffer->converted.length);
         converted_buffer->converted.samples = dest;
 
-	for (int i = 0; i < expanded_frames; ++i) {
+	for (i = 0; i < expanded_frames; ++i) {
 		float src_frame_float = i * freq_ratio;
-		int src_frame_0 = (int) src_frame_float; // truncation
+		int src_frame_0 = (int) src_frame_float;
 
 		int sample_0 = (source[src_frame_0] | (source[src_frame_0] << 8)) - 32768;
 		short interpolated_sample;
@@ -2390,8 +2426,11 @@ sound_buffer_type* convert_digi_sound(sound_buffer_type* digi_buffer) {
 			int sample_1 = (source[src_frame_1] | (source[src_frame_1] << 8)) - 32768;
 			interpolated_sample = (short)((1.0f - alpha) * sample_0 + alpha * sample_1);
 		}
-		for (int channel = 0; channel < digi_audiospec->channels; ++channel) {
+		{
+		int channel;
+		for (channel = 0; channel < digi_audiospec->channels; ++channel) {
 			*dest++ = interpolated_sample;
+		}
 		}
 	}
 
@@ -2493,14 +2532,11 @@ void window_resized() {
 #if SDL_VERSION_ATLEAST(2,0,5) // SDL_RenderSetIntegerScale
 	if (use_integer_scaling) {
 		int window_width, window_height;
-		// On high-DPI screens, this is what we need instead of SDL_GetWindowSize().
-		//SDL_GL_GetDrawableSize(window_, &window_width, &window_height);
-		SDL_GetRendererOutputSize(renderer_, &window_width, &window_height);
 		int render_width, render_height;
+		SDL_bool makes_sense;
+		SDL_GetRendererOutputSize(renderer_, &window_width, &window_height);
 		SDL_RenderGetLogicalSize(renderer_, &render_width, &render_height);
-		// Disable integer scaling if it would result in downscaling.
-		// Because then the only suitable integer scaling factor is zero, i.e. the picture disappears.
-		SDL_bool makes_sense = (window_width >= render_width && window_height >= render_height);
+		makes_sense = (window_width >= render_width && window_height >= render_height);
 		SDL_RenderSetIntegerScale(renderer_, makes_sense);
 	}
 #endif
@@ -2533,8 +2569,9 @@ void init_scaling(void) {
 #endif
 		}
 		if (texture_fuzzy == NULL) {
+			int access;
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
-			int access = is_renderer_targettexture_supported ? SDL_TEXTUREACCESS_TARGET : SDL_TEXTUREACCESS_STREAMING;
+			access = is_renderer_targettexture_supported ? SDL_TEXTUREACCESS_TARGET : SDL_TEXTUREACCESS_STREAMING;
 			texture_fuzzy = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB24, access, 320*2, 200*2);
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
 		}
@@ -2556,22 +2593,32 @@ void init_scaling(void) {
 }
 
 // seg009:38ED
+extern void debug_log(const char* msg);
+
 void set_gr_mode(byte grmode) {
+	Uint32 flags;
+	SDL_Surface* icon;
+	SDL_RendererInfo renderer_info;
+	int sdl_result;
+	debug_log("set_gr_mode: enter");
 #ifdef SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING
 	SDL_SetHint(SDL_HINT_WINDOWS_DISABLE_THREAD_NAMING, "1");
 #endif
-	if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_NOPARACHUTE | SDL_INIT_GAMECONTROLLER) != 0) {
+	debug_log("set_gr_mode: calling SDL_Init");
+	sdl_result = SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_NOPARACHUTE);
+	if (sdl_result != 0) {
+		debug_log("set_gr_mode: SDL_Init FAILED");
 		sdlperror("set_gr_mode: SDL_Init");
 		quit(1);
 	}
+	debug_log("set_gr_mode: SDL_Init OK");
 	if (enable_controller_rumble) {
 		if (SDL_InitSubSystem(SDL_INIT_HAPTIC) != 0) {
 			printf("Warning: Haptic subsystem unavailable, ignoring enable_controller_rumble = true\n");
 		}
 	}
 
-	//SDL_EnableUNICODE(1); //deprecated
-	Uint32 flags = 0;
+	flags = 0;
 	if (!start_fullscreen) start_fullscreen = check_param("full") != NULL;
 	if (start_fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 	flags |= SDL_WINDOW_RESIZABLE;
@@ -2583,25 +2630,27 @@ void set_gr_mode(byte grmode) {
 	}
 
 #if _WIN32
-	// Tell Windows that the application is DPI aware, to prevent unwanted bitmap stretching.
-	// SetProcessDPIAware() is only available on Windows Vista and later, so we need to load it dynamically.
-	typedef BOOL (WINAPI *dpiaware)(void);
-	HMODULE user32dll = LoadLibraryA("User32.dll");
-	if (user32dll) {
-		dpiaware SetProcessDPIAware = (dpiaware)GetProcAddress(user32dll, "SetProcessDPIAware");
-		if (SetProcessDPIAware) {
-			SetProcessDPIAware();
+	{
+		typedef BOOL (WINAPI *dpiaware)(void);
+		HMODULE user32dll = LoadLibraryA("User32.dll");
+		if (user32dll) {
+			dpiaware SetProcessDPIAware = (dpiaware)GetProcAddress(user32dll, "SetProcessDPIAware");
+			if (SetProcessDPIAware) {
+				SetProcessDPIAware();
+			}
+			FreeLibrary(user32dll);
 		}
-		FreeLibrary(user32dll);
 	}
 #endif
 
 #ifdef USE_REPLAY
 	if (!is_validate_mode) // run without a window if validating a replay
 #endif
+	debug_log("set_gr_mode: creating window");
 	window_ = SDL_CreateWindow(WINDOW_TITLE,
 	                           SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
 	                           pop_window_width, pop_window_height, flags);
+	debug_log(window_ ? "set_gr_mode: window created OK" : "set_gr_mode: window creation FAILED");
 	// Make absolutely sure that VSync will be off, to prevent timer issues.
 	SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
 	flags = 0;
@@ -2612,8 +2661,9 @@ void set_gr_mode(byte grmode) {
 		         // fallthrough!
 		default: break;
 	}
+	debug_log("set_gr_mode: creating renderer");
 	renderer_ = SDL_CreateRenderer(window_, -1 , flags | SDL_RENDERER_TARGETTEXTURE);
-	SDL_RendererInfo renderer_info;
+	debug_log(renderer_ ? "set_gr_mode: renderer created OK" : "set_gr_mode: renderer FAILED");
 	if (SDL_GetRendererInfo(renderer_, &renderer_info) == 0) {
 		if (renderer_info.flags & SDL_RENDERER_TARGETTEXTURE) {
 			is_renderer_targettexture_supported = true;
@@ -2627,7 +2677,7 @@ void set_gr_mode(byte grmode) {
 #endif
 	}
 
-	SDL_Surface* icon = IMG_Load(locate_file("data/icon.png"));
+	icon = IMG_Load(locate_file("data/icon.png"));
 	if (icon == NULL) {
 		sdlperror("set_gr_mode: Could not load icon");
 	} else {
@@ -2691,13 +2741,19 @@ void draw_overlay(void) {
 	if (is_paused && is_menu_shown) overlay = 2;
 #endif
 	if (overlay != 0) {
-		is_overlay_displayed = true;
 		surface_type* saved_target_surface = current_target_surface;
-		current_target_surface = overlay_surface;
 		rect_type drawn_rect;
+		SDL_Rect sdl_rect;
+		is_overlay_displayed = true;
+		current_target_surface = overlay_surface;
 		if (overlay == 1) {
 #ifdef USE_DEBUG_CHEATS
 			char timer_text[32];
+			int expected_numeric_chars;
+			int extra_numeric_chars;
+			int line_width;
+			rect_type timer_box_rect;
+			rect_type timer_text_rect;
 			if (rem_min < 0) {
 				snprintf(timer_text, sizeof(timer_text), "%02d:%02d:%02d",
 				         -(rem_min + 1), (719 - rem_tick) / 12, (719 - rem_tick) % 12);
@@ -2705,24 +2761,27 @@ void draw_overlay(void) {
 				snprintf(timer_text, sizeof(timer_text), "%02d:%02d:%02d",
 				         rem_min - 1, rem_tick / 12, rem_tick % 12);
 			}
-			int expected_numeric_chars = 6;
-			int extra_numeric_chars = MAX(0, (int)strnlen(timer_text, sizeof(timer_text)) - 8);
-			int line_width = 5 + (expected_numeric_chars + extra_numeric_chars) * 9;
+			expected_numeric_chars = 6;
+			extra_numeric_chars = MAX(0, (int)strnlen(timer_text, sizeof(timer_text)) - 8);
+			line_width = 5 + (expected_numeric_chars + extra_numeric_chars) * 9;
 
-			rect_type timer_box_rect = {0, 0, 11, 2 + line_width};
-			rect_type timer_text_rect = {2, 2, 10, 100};
+			timer_box_rect.top = 0; timer_box_rect.left = 0;
+			timer_box_rect.bottom = 11; timer_box_rect.right = 2 + line_width;
+			timer_text_rect.top = 2; timer_text_rect.left = 2;
+			timer_text_rect.bottom = 10; timer_text_rect.right = 100;
 			draw_rect_with_alpha(&timer_box_rect, color_0_black, 128);
 			show_text(&timer_text_rect, halign_left, valign_top, timer_text);
 
 #ifdef USE_REPLAY
-			// During playback, display the number of ticks since start, if the timer is shown (debug cheats: T).
 			if (replaying) {
 				char ticks_text[12];
+				rect_type ticks_box_rect;
+				rect_type ticks_text_rect;
 				snprintf(ticks_text, sizeof(ticks_text), "T: %d", curr_tick);
-				rect_type ticks_box_rect = timer_box_rect;
+				ticks_box_rect = timer_box_rect;
 				ticks_box_rect.top += 12;
 				ticks_box_rect.bottom += 12;
-				rect_type ticks_text_rect = timer_text_rect;
+				ticks_text_rect = timer_text_rect;
 				ticks_text_rect.top += 12;
 				ticks_text_rect.bottom += 12;
 
@@ -2733,28 +2792,35 @@ void draw_overlay(void) {
 			}
 #endif
 
-			drawn_rect = timer_box_rect; // Only need to blit this bit to the merged_surface.
+			drawn_rect = timer_box_rect;
 #endif
-		} else if (overlay == 3) { // Feather timer
+		} else if (overlay == 3) {
 #ifdef USE_DEBUG_CHEATS
 			char timer_text[32];
-			int ticks_per_sec = get_ticks_per_sec(timer_1);
+			int ticks_per_sec;
+			int expected_numeric_chars;
+			int extra_numeric_chars;
+			int line_width;
+			rect_type timer_box_rect;
+			rect_type timer_text_rect;
+			ticks_per_sec = get_ticks_per_sec(timer_1);
 			snprintf(timer_text, sizeof(timer_text), "%02d:%02d", is_feather_fall / ticks_per_sec, is_feather_fall % ticks_per_sec);
-			int expected_numeric_chars = 6;
-			int extra_numeric_chars = MAX(0, (int)strnlen(timer_text, sizeof(timer_text)) - 8);
-			int line_width = 5 + (expected_numeric_chars + extra_numeric_chars) * 9;
+			expected_numeric_chars = 6;
+			extra_numeric_chars = MAX(0, (int)strnlen(timer_text, sizeof(timer_text)) - 8);
+			line_width = 5 + (expected_numeric_chars + extra_numeric_chars) * 9;
 
-			rect_type timer_box_rect = {0, 0, 11, 2 + line_width};
-			rect_type timer_text_rect = {2, 2, 10, 100};
+			timer_box_rect.top = 0; timer_box_rect.left = 0;
+			timer_box_rect.bottom = 11; timer_box_rect.right = 2 + line_width;
+			timer_text_rect.top = 2; timer_text_rect.left = 2;
+			timer_text_rect.bottom = 10; timer_text_rect.right = 100;
 			draw_rect_with_alpha(&timer_box_rect, color_0_black, 128);
 			show_text_with_color(&timer_text_rect, halign_left, valign_top, timer_text, color_10_brightgreen);
 
-			drawn_rect = timer_box_rect; // Only need to blit this bit to the merged_surface.
+			drawn_rect = timer_box_rect;
 #endif
 		} else {
 			drawn_rect = screen_rect; // We'll blit the whole contents of overlay_surface to the merged_surface.
 		}
-		SDL_Rect sdl_rect;
 		rect_to_sdlrect(&drawn_rect, &sdl_rect);
 		SDL_BlitSurface(onscreen_surface_, NULL, merged_surface, NULL);
 		SDL_BlitSurface(overlay_surface, &sdl_rect, merged_surface, &sdl_rect);
@@ -2763,8 +2829,9 @@ void draw_overlay(void) {
 }
 
 void update_screen() {
+	SDL_Surface* surface;
 	draw_overlay();
-	SDL_Surface* surface = get_final_surface();
+	surface = get_final_surface();
 	init_scaling();
 	if (scaling_type == 1) {
 		// Make "fuzzy pixels" like DOSBox does:
@@ -2793,8 +2860,8 @@ void update_screen() {
 
 // seg009:9289
 void set_pal_arr(int start,int count,const rgb_type* array) {
-	// stub
-	for (int i = 0; i < count; ++i) {
+	int i;
+	for (i = 0; i < count; ++i) {
 		if (array) {
 			set_pal(start + i, array[i].r, array[i].g, array[i].b);
 		} else {
@@ -2848,15 +2915,14 @@ int get_text_color(int cga_color,int low_half,int high_half_mask) {
 void load_from_opendats_metadata(int resource_id, const char* extension, FILE** out_fp, data_location* result, byte* checksum, int* size, dat_type** out_pointer) {
 	char image_filename[POP_MAX_PATH];
 	FILE* fp = NULL;
+	dat_type* pointer;
 	*result = data_none;
-	// Go through all open DAT files.
-	for (dat_type* pointer = dat_chain_ptr; fp == NULL && pointer != NULL; pointer = pointer->next_dat) {
+	for (pointer = dat_chain_ptr; fp == NULL && pointer != NULL; pointer = pointer->next_dat) {
 		*out_pointer = pointer;
 		if (pointer->handle != NULL) {
-			// If it's an actual DAT file:
-			fp = pointer->handle;
 			dat_table_type* dat_table = pointer->dat_table;
 			int i;
+			fp = pointer->handle;
 			for (i = 0; i < SDL_SwapLE16(dat_table->res_count); ++i) {
 				if (SDL_SwapLE16(dat_table->entries[i].id) == resource_id) {
 					break;
@@ -2887,11 +2953,10 @@ void load_from_opendats_metadata(int resource_id, const char* extension, FILE** 
 		}
 		// If the image is not in the DAT then try the directory as well.
 		if (*result == data_none) {
-			// If it's a directory:
 			char filename_no_ext[POP_MAX_PATH];
-			// strip the .DAT file extension from the filename (use folders simply named TITLE, KID, VPALACE, etc.)
+			size_t len;
 			strncpy(filename_no_ext, pointer->filename, sizeof(filename_no_ext));
-			size_t len = strlen(filename_no_ext);
+			len = strlen(filename_no_ext);
 			if (len >= 5 && filename_no_ext[len-4] == '.') {
 				filename_no_ext[len-4] = '\0'; // terminate, so ".DAT" is deleted from the filename
 			}
@@ -2956,22 +3021,21 @@ void close_dat(dat_type* pointer) {
 
 // seg009:9F80
 void *load_from_opendats_alloc(int resource, const char* extension, data_location* out_result, int* out_size) {
-	// stub
-	//printf("id = %d\n",resource);
 	dat_type* pointer;
 	data_location result;
 	byte checksum;
 	int size;
 	FILE* fp = NULL;
+	void* area;
 	load_from_opendats_metadata(resource, extension, &fp, &result, &checksum, &size, &pointer);
 	if (out_result != NULL) *out_result = result;
 	if (out_size != NULL) *out_size = size;
 	if (result == data_none) return NULL;
-	void* area = malloc(size);
+	area = malloc(size);
 	//read(fd, area, size);
 	if (fread(area, size, 1, fp) != 1) {
 		fprintf(stderr, "%s: %s, resource %d, size %d, failed: %s\n",
-			__func__, pointer->filename, resource,
+			"load_from_opendats_alloc", pointer->filename, resource,
 			size, strerror(errno));
 		free(area);
 		area = NULL;
@@ -2994,7 +3058,7 @@ int load_from_opendats_to_area(int resource,void* area,int length, const char* e
 	if (result == data_none) return 0;
 	if (fread(area, MIN(size, length), 1, fp) != 1) {
 		fprintf(stderr, "%s: %s, resource %d, size %d, failed: %s\n",
-			__func__, pointer->filename, resource,
+			"load_from_opendats_to_area", pointer->filename, resource,
 			size, strerror(errno));
 		memset(area, 0, MIN(size, length));
 	}
@@ -3014,8 +3078,8 @@ void rect_to_sdlrect(const rect_type* rect, SDL_Rect* sdlrect) {
 
 void method_1_blit_rect(surface_type* target_surface,surface_type* source_surface,const rect_type* target_rect, const rect_type* source_rect,int blit) {
 	SDL_Rect src_rect;
-	rect_to_sdlrect(source_rect, &src_rect);
 	SDL_Rect dest_rect;
+	rect_to_sdlrect(source_rect, &src_rect);
 	rect_to_sdlrect(target_rect, &dest_rect);
 
 	if (blit == blitters_0_no_transp) {
@@ -3040,41 +3104,40 @@ void method_1_blit_rect(surface_type* target_surface,surface_type* source_surfac
 image_type* method_3_blit_mono(image_type* image,int xpos,int ypos,int blitter,byte color) {
 	int w = image->w;
 	int h = image->h;
+	SDL_Surface* colored_image;
+	rgb_type palette_color;
+	uint32_t rgb_color;
+	int stride;
+	int y, x;
+	SDL_Rect src_rect;
+	SDL_Rect dest_rect;
 	if (SDL_SetColorKey(image, SDL_TRUE, 0) != 0) {
 		sdlperror("method_3_blit_mono: SDL_SetColorKey");
 		quit(1);
 	}
-	SDL_Surface* colored_image = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
+	colored_image = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
 
 	SDL_SetSurfaceBlendMode(colored_image, SDL_BLENDMODE_NONE);
-	/* Causes problems with SDL 2.0.5 (see #105)
-	if (SDL_SetColorKey(colored_image, SDL_TRUE, 0) != 0) {
-		sdlperror("method_3_blit_mono: SDL_SetColorKey");
-		quit(1);
-	}
-	*/
 
 	if (SDL_LockSurface(colored_image) != 0) {
 		sdlperror("method_3_blit_mono: SDL_LockSurface");
 		quit(1);
 	}
 
-	rgb_type palette_color = palette[color];
-	uint32_t rgb_color = SDL_MapRGB(colored_image->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2) & 0xFFFFFF;
-	int stride = colored_image->pitch;
-	for (int y = 0; y < h; ++y) {
+	palette_color = palette[color];
+	rgb_color = SDL_MapRGB(colored_image->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2) & 0xFFFFFF;
+	stride = colored_image->pitch;
+	for (y = 0; y < h; ++y) {
 		uint32_t* pixel_ptr = (uint32_t*) ((byte*)colored_image->pixels + stride * y);
-		for (int x = 0; x < w; ++x) {
-			// set RGB but leave alpha
+		for (x = 0; x < w; ++x) {
 			*pixel_ptr = (*pixel_ptr & 0xFF000000) | rgb_color;
-			//printf("pixel x=%d, y=%d, color = 0x%8x\n", x, y, *pixel_ptr);
 			++pixel_ptr;
 		}
 	}
 	SDL_UnlockSurface(colored_image);
 
-	SDL_Rect src_rect = {0, 0, image->w, image->h};
-	SDL_Rect dest_rect = {xpos, ypos, image->w, image->h};
+	src_rect.x = 0; src_rect.y = 0; src_rect.w = image->w; src_rect.h = image->h;
+	dest_rect.x = xpos; dest_rect.y = ypos; dest_rect.w = image->w; dest_rect.h = image->h;
 
 	SDL_SetSurfaceBlendMode(colored_image, SDL_BLENDMODE_BLEND);
 	SDL_SetSurfaceBlendMode(current_target_surface, SDL_BLENDMODE_BLEND);
@@ -3123,12 +3186,14 @@ int safe_SDL_FillRect(SDL_Surface* dst, const SDL_Rect* rect, Uint32 color) {
 
 const rect_type* method_5_rect(const rect_type* rect,int blit,byte color) {
 	SDL_Rect dest_rect;
+	rgb_type palette_color;
+	uint32_t rgb_color;
 	rect_to_sdlrect(rect, &dest_rect);
-	rgb_type palette_color = palette[color];
+	palette_color = palette[color];
 #ifndef USE_ALPHA
-	uint32_t rgb_color = SDL_MapRGBA(current_target_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, 0xFF);
+	rgb_color = SDL_MapRGBA(current_target_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, 0xFF);
 #else
-	uint32_t rgb_color = SDL_MapRGBA(current_target_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, color == 0 ? SDL_ALPHA_TRANSPARENT : SDL_ALPHA_OPAQUE);
+	rgb_color = SDL_MapRGBA(current_target_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, color == 0 ? SDL_ALPHA_TRANSPARENT : SDL_ALPHA_OPAQUE);
 #endif
 	if (safe_SDL_FillRect(current_target_surface, &dest_rect, rgb_color) != 0) {
 		sdlperror("method_5_rect: SDL_FillRect");
@@ -3139,9 +3204,11 @@ const rect_type* method_5_rect(const rect_type* rect,int blit,byte color) {
 
 void draw_rect_with_alpha(const rect_type* rect, byte color, byte alpha) {
 	SDL_Rect dest_rect;
+	rgb_type palette_color;
+	uint32_t rgb_color;
 	rect_to_sdlrect(rect, &dest_rect);
-	rgb_type palette_color = palette[color];
-	uint32_t rgb_color = SDL_MapRGBA(overlay_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, alpha);
+	palette_color = palette[color];
+	rgb_color = SDL_MapRGBA(overlay_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, alpha);
 	if (safe_SDL_FillRect(current_target_surface, &dest_rect, rgb_color) != 0) {
 		sdlperror("draw_rect_with_alpha: SDL_FillRect");
 		quit(1);
@@ -3149,38 +3216,43 @@ void draw_rect_with_alpha(const rect_type* rect, byte color, byte alpha) {
 }
 
 void draw_rect_contours(const rect_type* rect, byte color) {
-	// TODO: handle 24 bit surfaces? (currently, 32 bit surface is assumed)
+	SDL_Rect dest_rect;
+	rgb_type palette_color;
+	uint32_t rgb_color;
+	int bytes_per_pixel, pitch, xmin, xmax, ymin, ymax, x, y;
+	byte* pixels;
+	byte* row;
+	uint32_t* pixel;
 	if (current_target_surface->format->BitsPerPixel != 32) {
 		printf("draw_rect_contours: not implemented for %d bit surfaces\n", current_target_surface->format->BitsPerPixel);
 		return;
 	}
-	SDL_Rect dest_rect;
 	rect_to_sdlrect(rect, &dest_rect);
-	rgb_type palette_color = palette[color];
-	uint32_t rgb_color = SDL_MapRGBA(overlay_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, 0xFF);
+	palette_color = palette[color];
+	rgb_color = SDL_MapRGBA(overlay_surface->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2, 0xFF);
 	if (SDL_LockSurface(current_target_surface) != 0) {
 		sdlperror("draw_rect_contours: SDL_LockSurface");
 		quit(1);
 	}
-	int bytes_per_pixel = current_target_surface->format->BytesPerPixel;
-	int pitch = current_target_surface->pitch;
-	byte* pixels = current_target_surface->pixels;
-	int xmin = MIN(dest_rect.x,               current_target_surface->w);
-	int xmax = MIN(dest_rect.x + dest_rect.w, current_target_surface->w);
-	int ymin = MIN(dest_rect.y,               current_target_surface->h);
-	int ymax = MIN(dest_rect.y + dest_rect.h, current_target_surface->h);
-	byte* row = pixels + ymin*pitch;
-	uint32_t* pixel =  (uint32_t*) (row + xmin*bytes_per_pixel);
-	for (int x = xmin; x < xmax; ++x) {
+	bytes_per_pixel = current_target_surface->format->BytesPerPixel;
+	pitch = current_target_surface->pitch;
+	pixels = current_target_surface->pixels;
+	xmin = MIN(dest_rect.x,               current_target_surface->w);
+	xmax = MIN(dest_rect.x + dest_rect.w, current_target_surface->w);
+	ymin = MIN(dest_rect.y,               current_target_surface->h);
+	ymax = MIN(dest_rect.y + dest_rect.h, current_target_surface->h);
+	row = pixels + ymin*pitch;
+	pixel =  (uint32_t*) (row + xmin*bytes_per_pixel);
+	for (x = xmin; x < xmax; ++x) {
 		*pixel++ = rgb_color;
 	}
-	for (int y = ymin+1; y < ymax-1; ++y) {
+	for (y = ymin+1; y < ymax-1; ++y) {
 		row += pitch;
 		*(uint32_t*)(row + xmin*bytes_per_pixel) = rgb_color;
 		*(uint32_t*)(row + (xmax-1)*bytes_per_pixel) = rgb_color;
 	}
 	pixel = (uint32_t*) (pixels + (ymax-1)*pitch + xmin*bytes_per_pixel);
-	for (int x = xmin; x < xmax; ++x) {
+	for (x = xmin; x < xmax; ++x) {
 		*pixel++ = rgb_color;
 	}
 
@@ -3188,23 +3260,28 @@ void draw_rect_contours(const rect_type* rect, byte color) {
 }
 
 void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* image, SDL_Rect* src_rect) {
+	SDL_Surface* helper_surface;
+	SDL_Surface* image_24;
+	SDL_Rect dest_rect2;
+	int size;
+	byte *p_src;
+	byte *p_dest;
+	int i;
 	if (dest_rect->w != src_rect->w || dest_rect->h != src_rect->h) {
 		printf("blit_xor: dest_rect and src_rect have different sizes\n");
 		quit(1);
 	}
-	SDL_Surface* helper_surface = SDL_CreateRGBSurface(0, dest_rect->w, dest_rect->h, 24, Rmsk, Gmsk, Bmsk, 0);
+	helper_surface = SDL_CreateRGBSurface(0, dest_rect->w, dest_rect->h, 24, Rmsk, Gmsk, Bmsk, 0);
 	if (helper_surface == NULL) {
 		sdlperror("blit_xor: SDL_CreateRGBSurface");
 		quit(1);
 	}
-	SDL_Surface* image_24 = SDL_ConvertSurface(image, helper_surface->format, 0);
-	//SDL_CreateRGBSurface(0, src_rect->w, src_rect->h, 24, Rmsk, Gmsk, Bmsk, 0);
+	image_24 = SDL_ConvertSurface(image, helper_surface->format, 0);
 	if (image_24 == NULL) {
 		sdlperror("blit_xor: SDL_CreateRGBSurface");
 		quit(1);
 	}
-	SDL_Rect dest_rect2 = *src_rect;
-	// Read what is currently where we want to draw the new image.
+	dest_rect2 = *src_rect;
 	if (SDL_BlitSurface(target_surface, dest_rect, helper_surface, &dest_rect2) != 0) {
 		sdlperror("blit_xor: SDL_BlitSurface");
 		quit(1);
@@ -3217,12 +3294,11 @@ void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* ima
 		sdlperror("blit_xor: SDL_LockSurface");
 		quit(1);
 	}
-	int size = helper_surface->h * helper_surface->pitch;
-	byte *p_src = (byte*) image_24->pixels;
-	byte *p_dest = (byte*) helper_surface->pixels;
+	size = helper_surface->h * helper_surface->pitch;
+	p_src = (byte*) image_24->pixels;
+	p_dest = (byte*) helper_surface->pixels;
 
-	// Xor the old area with the image.
-	for (int i = 0; i < size; ++i) {
+	for (i = 0; i < size; ++i) {
 		*p_dest ^= *p_src;
 		++p_src; ++p_dest;
 	}
@@ -3239,12 +3315,15 @@ void blit_xor(SDL_Surface* target_surface, SDL_Rect* dest_rect, SDL_Surface* ima
 
 #ifdef USE_COLORED_TORCHES
 void draw_colored_torch(int color, SDL_Surface* image, int xpos, int ypos) {
+	SDL_Surface* colored_image;
+	int w, h, iRed, iGreen, iBlue, stride, y, x;
+	uint32_t old_color, new_color;
 	if (SDL_SetColorKey(image, SDL_TRUE, 0) != 0) {
 		sdlperror("draw_colored_torch: SDL_SetColorKey");
 		quit(1);
 	}
 
-	SDL_Surface* colored_image = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
+	colored_image = SDL_ConvertSurfaceFormat(image, SDL_PIXELFORMAT_ARGB8888, 0);
 	SDL_SetSurfaceBlendMode(colored_image, SDL_BLENDMODE_NONE);
 
 	if (SDL_LockSurface(colored_image) != 0) {
@@ -3252,17 +3331,17 @@ void draw_colored_torch(int color, SDL_Surface* image, int xpos, int ypos) {
 		quit(1);
 	}
 
-	int w = colored_image->w;
-	int h = colored_image->h;
-	int iRed = ((color >> 4) & 3) * 85;
-	int iGreen = ((color >> 2) & 3) * 85;
-	int iBlue = ((color >> 0) & 3) * 85;
-	uint32_t old_color = SDL_MapRGB(colored_image->format, 0xFC, 0x84, 0x00) & 0xFFFFFF; // the orange in the flame
-	uint32_t new_color = SDL_MapRGB(colored_image->format, iRed, iGreen, iBlue) & 0xFFFFFF;
-	int stride = colored_image->pitch;
-	for (int y = 0; y < h; ++y) {
+	w = colored_image->w;
+	h = colored_image->h;
+	iRed = ((color >> 4) & 3) * 85;
+	iGreen = ((color >> 2) & 3) * 85;
+	iBlue = ((color >> 0) & 3) * 85;
+	old_color = SDL_MapRGB(colored_image->format, 0xFC, 0x84, 0x00) & 0xFFFFFF;
+	new_color = SDL_MapRGB(colored_image->format, iRed, iGreen, iBlue) & 0xFFFFFF;
+	stride = colored_image->pitch;
+	for (y = 0; y < h; ++y) {
 		uint32_t* pixel_ptr = (uint32_t*) ((byte*)colored_image->pixels + stride * y);
-		for (int x = 0; x < w; ++x) {
+		for (x = 0; x < w; ++x) {
 			if ((*pixel_ptr & 0xFFFFFF) == old_color) {
 				// set RGB but leave alpha
 				*pixel_ptr = (*pixel_ptr & 0xFF000000) | new_color;
@@ -3278,9 +3357,10 @@ void draw_colored_torch(int color, SDL_Surface* image, int xpos, int ypos) {
 #endif
 
 image_type* method_6_blit_img_to_scr(image_type* image,int xpos,int ypos,int blit) {
+	SDL_Rect src_rect;
+	SDL_Rect dest_rect;
 	if (image == NULL) {
 		printf("method_6_blit_img_to_scr: image == NULL\n");
-		//quit(1);
 		return NULL;
 	}
 
@@ -3289,8 +3369,8 @@ image_type* method_6_blit_img_to_scr(image_type* image,int xpos,int ypos,int bli
 		return image;
 	}
 
-	SDL_Rect src_rect = {0, 0, image->w, image->h};
-	SDL_Rect dest_rect = {xpos, ypos, image->w, image->h};
+	src_rect.x = 0; src_rect.y = 0; src_rect.w = image->w; src_rect.h = image->h;
+	dest_rect.x = xpos; dest_rect.y = ypos; dest_rect.w = image->w; dest_rect.h = image->h;
 
 	if (blit == blitters_3_xor) {
 		blit_xor(current_target_surface, &dest_rect, image, &src_rect);
@@ -3383,6 +3463,7 @@ void recalculate_feather_fall_timer(double previous_ticks_per_second, double tic
 }
 
 void set_timer_length(int timer_index, int length) {
+	double previous_ticks_per_second, ticks_per_second;
 	if (!fixes->fix_quicksave_during_feather) {
 		wait_time[timer_index] = length;
 		return;
@@ -3393,7 +3474,6 @@ void set_timer_length(int timer_index, int length) {
 		wait_time[timer_index] = length;
 		return;
 	}
-	double previous_ticks_per_second, ticks_per_second;
 	previous_ticks_per_second = get_ticks_per_sec(timer_index);
 	wait_time[timer_index] = length;
 	ticks_per_second = get_ticks_per_sec(timer_index);
@@ -3411,7 +3491,8 @@ void start_timer(int timer_index, int length) {
 }
 
 void toggle_fullscreen(void) {
-	uint32_t flags = SDL_GetWindowFlags(window_);
+	uint32_t flags;
+	flags = SDL_GetWindowFlags(window_);
 	if (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) {
 		SDL_SetWindowFullscreen(window_, 0);
 		SDL_ShowCursor(SDL_ENABLE);
@@ -3651,6 +3732,7 @@ void process_events() {
 				}
 				if (event.type == SDL_JOYAXISMOTION) {
 					int axis = -1;
+					int joy_x, joy_y;
 					if (event.jaxis.axis == SDL_JOYSTICK_X_AXIS) {
 						axis = SDL_CONTROLLER_AXIS_LEFTX;
 					}
@@ -3663,9 +3745,8 @@ void process_events() {
 					if (abs(event.jaxis.value) > abs(joy_axis_max[axis]))
 						joy_axis_max[axis] = event.jaxis.value;
 
-					// Disregard SDL_JOYAXISMOTION events within joystick 'dead zone'
-					int joy_x = joy_axis[SDL_CONTROLLER_AXIS_LEFTX];
-					int joy_y = joy_axis[SDL_CONTROLLER_AXIS_LEFTY];
+					joy_x = joy_axis[SDL_CONTROLLER_AXIS_LEFTX];
+					joy_y = joy_axis[SDL_CONTROLLER_AXIS_LEFTY];
 					if ((dword)(joy_x*joy_x) + (dword)(joy_y*joy_y) < (dword)(joystick_threshold*joystick_threshold)) {
 						break;
 					}
@@ -3746,8 +3827,10 @@ void process_events() {
 			case SDL_USEREVENT:
 				if (event.user.code == userevent_TIMER /*&& event.user.data1 == (void*)timer_index*/) {
 #ifdef USE_COMPAT_TIMER
-					for (int index = 0; index < NUM_TIMERS; ++index) {
+					{ int index;
+					for (index = 0; index < NUM_TIMERS; ++index) {
 						if (wait_time[index] > 0) --wait_time[index];
+					}
 					}
 #endif
 				} else if (event.user.code == userevent_SOUND) {
@@ -3814,9 +3897,10 @@ int do_wait(int timer_index) {
 #endif
 	update_screen();
 	while (! has_timer_stopped(timer_index)) {
+		int key;
 		SDL_Delay(1);
 		process_events();
-		int key = do_paused();
+		key = do_paused();
 		if (key != 0 && (word_1D63A != 0 || key == 0x1B)) return 1;
 	}
 	return 0;
@@ -3832,7 +3916,7 @@ void init_timer(int frequency) {
 	fps = frequency;
 	milliseconds_per_tick = 1000.0f / (float)fps;
 	perf_counters_per_tick = perf_frequency / fps;
-	milliseconds_per_counter = 1000.0f / perf_frequency;
+	milliseconds_per_counter = 1000.0f / (Sint64)perf_frequency;
 #else
 	global_timer = SDL_AddTimer(1000/frequency, timer_callback, NULL);
 	if (global_timer != 0) {
@@ -3866,22 +3950,16 @@ void set_bg_attr(int vga_pal_index,int hc_pal_index) {
 	//palette[vga_pal_index] = vga_palette[hc_pal_index];
 	if (!enable_flash) return;
 	if (vga_pal_index == 0) {
-		/*
-		if (SDL_SetAlpha(offscreen_surface, SDL_SRCALPHA, 0) != 0) {
-			sdlperror("set_bg_attr: SDL_SetAlpha");
-			quit(1);
-		}
-		*/
-		// Make the black pixels transparent.
-		if (SDL_SetColorKey(offscreen_surface, SDL_TRUE, 0) != 0) {	// SDL_SRCCOLORKEY old
+		SDL_Rect rect;
+		rgb_type palette_color;
+		uint32_t rgb_color;
+		if (SDL_SetColorKey(offscreen_surface, SDL_TRUE, 0) != 0) {
 			sdlperror("set_bg_attr: SDL_SetColorKey");
 			quit(1);
 		}
-		SDL_Rect rect = {0,0,0,0};
-		rect.w = offscreen_surface->w;
-		rect.h = offscreen_surface->h;
-		rgb_type palette_color = palette[hc_pal_index];
-		uint32_t rgb_color = SDL_MapRGB(onscreen_surface_->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2) /*& 0xFFFFFF*/;
+		rect.x = 0; rect.y = 0; rect.w = offscreen_surface->w; rect.h = offscreen_surface->h;
+		palette_color = palette[hc_pal_index];
+		rgb_color = SDL_MapRGB(onscreen_surface_->format, palette_color.r<<2, palette_color.g<<2, palette_color.b<<2);
 		//SDL_UpdateRect(onscreen_surface_, 0, 0, 0, 0);
 		// First clear the screen with the color of the flash.
 		if (safe_SDL_FillRect(onscreen_surface_, &rect, rgb_color) != 0) {
@@ -3969,15 +4047,14 @@ palette_fade_type* make_pal_buffer_fadein(surface_type* source_surface,int which
 	palette_buffer->proc_fade_frame = &fade_in_frame;
 	read_palette_256(palette_buffer->original_pal);
 	memcpy(palette_buffer->faded_pal, palette_buffer->original_pal, sizeof(palette_buffer->faded_pal));
-	for (word curr_row = 0, curr_row_mask = 1; curr_row < 0x10; ++curr_row, curr_row_mask<<=1) {
+	{ word curr_row, curr_row_mask;
+	for (curr_row = 0, curr_row_mask = 1; curr_row < 0x10; ++curr_row, curr_row_mask<<=1) {
 		if (which_rows & curr_row_mask) {
 			memset(palette_buffer->faded_pal + (curr_row<<4), 0, sizeof(rgb_type[0x10]));
 			set_pal_arr(curr_row<<4, 0x10, NULL);
 		}
 	}
-	//method_1_blit_rect(onscreen_surface_, source_surface, &screen_rect, &screen_rect, 0);
-	// for RGB
-	//method_5_rect(&screen_rect, 0, color_0_black);
+	}
 	return palette_buffer;
 }
 
@@ -3991,17 +4068,16 @@ void pal_restore_free_fadein(palette_fade_type* palette_buffer) {
 
 // seg009:1B88
 int fade_in_frame(palette_fade_type* palette_buffer) {
-//	void* var_12;
-	/**/start_timer(timer_1, palette_buffer->wait_time); // too slow?
+	word start, current_row_mask, column;
+	int h, on_stride, off_stride, fade_pos, y, x;
+	/**/start_timer(timer_1, palette_buffer->wait_time);
 
-	//printf("start ticks = %u\n",SDL_GetTicks());
 	--palette_buffer->fade_pos;
-	for (word start=0,current_row_mask=1; start<0x100; start+=0x10, current_row_mask<<=1) {
+	for (start=0,current_row_mask=1; start<0x100; start+=0x10, current_row_mask<<=1) {
 		if (palette_buffer->which_rows & current_row_mask) {
-			//var_12 = palette_buffer->
 			rgb_type* original_pal_ptr = palette_buffer->original_pal + start;
 			rgb_type* faded_pal_ptr = palette_buffer->faded_pal + start;
-			for (word column = 0; column<0x10; ++column) {
+			for (column = 0; column<0x10; ++column) {
 				if (original_pal_ptr[column].r > palette_buffer->fade_pos) {
 					++faded_pal_ptr[column].r;
 				}
@@ -4014,13 +4090,13 @@ int fade_in_frame(palette_fade_type* palette_buffer) {
 			}
 		}
 	}
-	for (word start = 0, current_row_mask = 1; start<0x100; start+=0x10, current_row_mask<<=1) {
+	for (start = 0, current_row_mask = 1; start<0x100; start+=0x10, current_row_mask<<=1) {
 		if (palette_buffer->which_rows & current_row_mask) {
 			set_pal_arr(start, 0x10, palette_buffer->faded_pal + start);
 		}
 	}
 
-	int h = offscreen_surface->h;
+	h = offscreen_surface->h;
 	if (SDL_LockSurface(onscreen_surface_) != 0) {
 		sdlperror("fade_in_frame: SDL_LockSurface");
 		quit(1);
@@ -4029,14 +4105,13 @@ int fade_in_frame(palette_fade_type* palette_buffer) {
 		sdlperror("fade_in_frame: SDL_LockSurface");
 		quit(1);
 	}
-	int on_stride = onscreen_surface_->pitch;
-	int off_stride = offscreen_surface->pitch;
-	int fade_pos = palette_buffer->fade_pos;
-	for (int y = 0; y < h; ++y) {
+	on_stride = onscreen_surface_->pitch;
+	off_stride = offscreen_surface->pitch;
+	fade_pos = palette_buffer->fade_pos;
+	for (y = 0; y < h; ++y) {
 		byte* on_pixel_ptr = (byte*)onscreen_surface_->pixels + on_stride * y;
 		byte* off_pixel_ptr = (byte*)offscreen_surface->pixels + off_stride * y;
-		for (int x = 0; x < on_stride; ++x) {
-			//if (*off_pixel_ptr > palette_buffer->fade_pos) *pixel_ptr += 4;
+		for (x = 0; x < on_stride; ++x) {
 			int v = *off_pixel_ptr - fade_pos*4;
 			if (v<0) v=0;
 			*on_pixel_ptr = v;
@@ -4101,14 +4176,14 @@ void pal_restore_free_fadeout(palette_fade_type* palette_buffer) {
 // seg009:1DF7
 int fade_out_frame(palette_fade_type* palette_buffer) {
 	word finished_fading = 1;
-	++palette_buffer->fade_pos; // modified
-	/**/start_timer(timer_1, palette_buffer->wait_time); // too slow?
-	for (word start=0,current_row_mask=1; start<0x100; start+=0x10, current_row_mask<<=1) {
+	word start, current_row_mask, column;
+	int h, on_stride, off_stride, fade_pos, y, x;
+	++palette_buffer->fade_pos;
+	/**/start_timer(timer_1, palette_buffer->wait_time);
+	for (start=0,current_row_mask=1; start<0x100; start+=0x10, current_row_mask<<=1) {
 		if (palette_buffer->which_rows & current_row_mask) {
-			//var_12 = palette_buffer->
-			//original_pal_ptr = palette_buffer->original_pal + start;
 			rgb_type* faded_pal_ptr = palette_buffer->faded_pal + start;
-			for (word column = 0; column<0x10; ++column) {
+			for (column = 0; column<0x10; ++column) {
 				byte* curr_color_ptr = &faded_pal_ptr[column].r;
 				if (*curr_color_ptr != 0) {
 					--*curr_color_ptr;
@@ -4127,13 +4202,13 @@ int fade_out_frame(palette_fade_type* palette_buffer) {
 			}
 		}
 	}
-	for (word start = 0, current_row_mask = 1; start<0x100; start+=0x10, current_row_mask<<=1) {
+	for (start = 0, current_row_mask = 1; start<0x100; start+=0x10, current_row_mask<<=1) {
 		if (palette_buffer->which_rows & current_row_mask) {
 			set_pal_arr(start, 0x10, palette_buffer->faded_pal + start);
 		}
 	}
 
-	int h = offscreen_surface->h;
+	h = offscreen_surface->h;
 	if (SDL_LockSurface(onscreen_surface_) != 0) {
 		sdlperror("fade_out_frame: SDL_LockSurface");
 		quit(1);
@@ -4142,14 +4217,13 @@ int fade_out_frame(palette_fade_type* palette_buffer) {
 		sdlperror("fade_out_frame: SDL_LockSurface");
 		quit(1);
 	}
-	int on_stride = onscreen_surface_->pitch;
-	int off_stride = offscreen_surface->pitch;
-	int fade_pos = palette_buffer->fade_pos;
-	for (int y = 0; y < h; ++y) {
+	on_stride = onscreen_surface_->pitch;
+	off_stride = offscreen_surface->pitch;
+	fade_pos = palette_buffer->fade_pos;
+	for (y = 0; y < h; ++y) {
 		byte* on_pixel_ptr = (byte*)onscreen_surface_->pixels + on_stride * y;
 		byte* off_pixel_ptr = (byte*)offscreen_surface->pixels + off_stride * y;
-		for (int x = 0; x < on_stride; ++x) {
-			//if (*pixel_ptr >= 4) *pixel_ptr -= 4;
+		for (x = 0; x < on_stride; ++x) {
 			int v = *off_pixel_ptr - fade_pos*4;
 			if (v<0) v=0;
 			*on_pixel_ptr = v;
@@ -4165,14 +4239,16 @@ int fade_out_frame(palette_fade_type* palette_buffer) {
 
 // seg009:1F28
 void read_palette_256(rgb_type* target) {
-	for (int i = 0; i < 256; ++i) {
+	int i;
+	for (i = 0; i < 256; ++i) {
 		target[i] = palette[i];
 	}
 }
 
 // seg009:1F5E
 void set_pal_256(rgb_type* source) {
-	for (int i = 0; i < 256; ++i) {
+	int i;
+	for (i = 0; i < 256; ++i) {
 		palette[i] = source[i];
 	}
 }
@@ -4181,26 +4257,20 @@ void set_pal_256(rgb_type* source) {
 void set_chtab_palette(chtab_type* chtab, byte* colors, int n_colors) {
 	if (chtab != NULL) {
 		SDL_Color* scolors = (SDL_Color*) malloc(n_colors*sizeof(SDL_Color));
-		//printf("scolors\n",i);
-		for (int i = 0; i < n_colors; ++i) {
-			//printf("i=%d\n",i);
+		int i;
+		for (i = 0; i < n_colors; ++i) {
 			scolors[i].r = *colors << 2; ++colors;
 			scolors[i].g = *colors << 2; ++colors;
 			scolors[i].b = *colors << 2; ++colors;
-			scolors[i].a = SDL_ALPHA_OPAQUE; // the SDL2 SDL_Color struct has an alpha component
+			scolors[i].a = SDL_ALPHA_OPAQUE;
 		}
 
-		// Color 0 of the palette data is not used, it is replaced by the background color.
-		// Needed for correct alternate colors (v1.3) of level 8.
 		scolors[0].r = scolors[0].g = scolors[0].b = 0;
 		scolors[0].a = SDL_ALPHA_TRANSPARENT;
 
-		//printf("setcolors\n",i);
-		for (int i = 0; i < chtab->n_images; ++i) {
-			//printf("i=%d\n",i);
+		for (i = 0; i < chtab->n_images; ++i) {
 			image_type* current_image = chtab->images[i];
 			if (current_image != NULL) {
-
 				int n_colors_to_be_set = n_colors;
 				SDL_Palette* current_palette = current_image->format->palette;
 
@@ -4223,16 +4293,18 @@ void set_chtab_palette(chtab_type* chtab, byte* colors, int n_colors) {
 }
 
 int has_timer_stopped(int timer_index) {
+	Uint64 current_counter;
+	int ticks_elapsed;
+	int overshoot;
 #ifdef USE_COMPAT_TIMER
 	return wait_time[timer_index] == 0;
 #else
 #ifdef USE_REPLAY
 	if ((replaying && skipping_replay) || is_validate_mode) return true;
 #endif
-	//PSP: overshoot always too big, 333mhz mandatory to read input!
-	Uint64 current_counter = SDL_GetPerformanceCounter();
-	int ticks_elapsed = (int)((current_counter / perf_counters_per_tick) - (timer_last_counter[timer_index] / perf_counters_per_tick));
-	int overshoot = ticks_elapsed - wait_time[timer_index];
+	current_counter = SDL_GetPerformanceCounter();
+	ticks_elapsed = (int)((current_counter / perf_counters_per_tick) - (timer_last_counter[timer_index] / perf_counters_per_tick));
+	overshoot = ticks_elapsed - wait_time[timer_index];
 	if (overshoot >= 0) {
 //		float milliseconds_elapsed = (current_counter - timer_last_counter[timer_index]) * milliseconds_per_counter;
 //		printf("timer %d:   frametime (ms) = %5.1f    fps = %.1f    timer ticks elapsed = %d\n", timer_index, milliseconds_elapsed, 1000.0f / milliseconds_elapsed, ticks_elapsed);

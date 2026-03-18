@@ -1,40 +1,16 @@
-# Project: SDLPoP
+all: prince.exe
 
-CC = gcc
-RM = rm -f
+OBJ = main.obj data.obj seg000.obj seg001.obj seg002.obj seg003.obj seg004.obj seg005.obj seg006.obj seg007.obj seg008.obj seg009.obj seqtbl.obj replay.obj options.obj lighting.obj screenshot.obj menu.obj midi.obj opl3.obj stb_vorbis.obj compat.obj
 
-HFILES = common.h config.h data.h proto.h types.h
-OBJ = main.o data.o seg000.o seg001.o seg002.o seg003.o seg004.o seg005.o seg006.o seg007.o seg008.o seg009.o seqtbl.o replay.o options.o lighting.o screenshot.o menu.o midi.o opl3.o stb_vorbis.o
-BIN = ../prince
+CC = cl /nologo /c /Od /Zi /W0 /I. /I..\..\SDL\include
 
-OS      := $(shell uname)
+.c.obj:
+	$(CC) $<
 
-CPPFLAGS += -Wall -D_GNU_SOURCE=1
-CFLAGS += -std=c99 -O2
-
-LIBS := $(shell pkg-config --libs sdl2 SDL2_image)
-CFLAGS += $(shell pkg-config --cflags sdl2 SDL2_image)
-
-ifeq ($(OS),Darwin)
-CPPFLAGS += -D_THREAD_SAFE -DOSX
-endif
-
-all: $(BIN)
+prince.exe: $(OBJ)
+	link /nologo /debug /subsystem:windows /out:prince.exe $(OBJ) ..\..\SDL\SDL2.lib kernel32.lib user32.lib gdi32.lib winmm.lib shell32.lib advapi32.lib
 
 clean:
-	$(RM) $(OBJ) $(BIN)
-
-install:
-	./install.sh
-
-uninstall:
-	./uninstall.sh
-
-$(BIN): $(OBJ)
-	$(CC) $(LDFLAGS) $(OBJ) -o $@ $(LIBS) -lm
-
-%.o: %.c $(HFILES)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) -c $<
-
-.PHONY: all clean
+	del *.obj
+	del prince.exe
 

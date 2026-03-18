@@ -50,7 +50,9 @@ void check_collisions() {
 	get_row_collision_data(collision_row    , curr_row_coll_room, curr_row_coll_flags);
 	get_row_collision_data(collision_row + 1, below_row_coll_room, below_row_coll_flags);
 	get_row_collision_data(collision_row - 1, above_row_coll_room, above_row_coll_flags);
-	for (short column = 9; column >= 0; --column) {
+	{
+	short column;
+	for (column = 9; column >= 0; --column) {
 		if (curr_row_coll_room[column] >= 0 &&
 			prev_coll_room[column] == curr_row_coll_room[column]
 		) {
@@ -69,6 +71,7 @@ void check_collisions() {
 				bump_col_right_of_wall = column;
 			}
 		}
+	}
 	}
 }
 
@@ -92,7 +95,9 @@ void move_coll_to_prev() {
 		row_coll_room_ptr = below_row_coll_room;
 		row_coll_flags_ptr = below_row_coll_flags;
 	}
-	for (short column = 0; column < 10; ++column) {
+	{
+	short column;
+	for (column = 0; column < 10; ++column) {
 		prev_coll_room[column] = row_coll_room_ptr[column];
 		prev_coll_flags[column] = row_coll_flags_ptr[column];
 		below_row_coll_room[column] = -1;
@@ -105,6 +110,7 @@ void move_coll_to_prev() {
 		above_row_coll_flags[column] = 0;
 #endif
 	}
+	}
 }
 
 // seg004:0185
@@ -113,8 +119,9 @@ void get_row_collision_data(short row, sbyte *row_coll_room_ptr, byte *row_coll_
 	byte curr_flags;
 	short left_wall_xpos;
 	short room = Char.room;
+	short column;
 	coll_tile_left_xpos = x_bump[left_checked_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
-	for (short column = left_checked_col; column <= right_checked_col; ++column) {
+	for (column = left_checked_col; column <= right_checked_col; ++column) {
 		left_wall_xpos = get_left_wall_xpos(room, column, row);
 		right_wall_xpos = get_right_wall_xpos(room, column, row);
 		// char bumps into left of wall
@@ -377,10 +384,11 @@ int can_bump_into_gate() {
 // seg004:067C
 int get_edge_distance() {
 	short distance;
+	byte tiletype;
 	determine_col();
 	load_frame_to_obj();
 	set_char_collision();
-	byte tiletype = get_tile_at_char();
+	tiletype = get_tile_at_char();
 	if (wall_type(tiletype) != 0) {
 		tile_col = Char.curr_col;
 		distance = dist_from_wall_forward(tiletype);
@@ -438,7 +446,8 @@ int get_edge_distance() {
 // seg004:076B
 void check_chomped_kid() {
 	short tile_row = Char.curr_row;
-	for (short tile_col = 0; tile_col < 10; ++tile_col) {
+	short tile_col;
+	for (tile_col = 0; tile_col < 10; ++tile_col) {
 		if (curr_row_coll_flags[tile_col] == 0xFF &&
 			get_tile(curr_row_coll_room[tile_col], tile_col, tile_row) == tiles_18_chomper &&
 			(curr_room_modif[curr_tilepos] & 0x7F) == 2 // closed chomper
@@ -491,9 +500,11 @@ void check_gate_push() {
 		frame == frame_15_stand || // stand
 		(frame >= frame_108_fall_land_2 && frame < 111) // crouch
 	) {
+		short orig_col;
+		int orig_room;
 		get_tile_at_char();
-		short orig_col = tile_col;
-		int orig_room = curr_room;
+		orig_col = tile_col;
+		orig_room = curr_room;
 		if ((curr_tile2 == tiles_4_gate ||
 			get_tile(curr_room, --tile_col, tile_row) == tiles_4_gate) &&
 			(curr_row_coll_flags[tile_col] & prev_coll_flags[tile_col]) == 0xFF &&
@@ -589,8 +600,9 @@ int dist_from_wall_forward(byte tiletype) {
 	if (tiletype == tiles_4_gate && ! can_bump_into_gate()) {
 		return -1;
 	} else {
+		short type;
 		coll_tile_left_xpos = x_bump[tile_col + FIRST_ONSCREEN_COLUMN] + TILE_MIDX;
-		short type = wall_type(tiletype);
+		type = wall_type(tiletype);
 		if (type == 0) return -1;
 		if (Char.direction < dir_0_right) {
 			// looking left

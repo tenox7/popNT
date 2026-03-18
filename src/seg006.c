@@ -505,11 +505,11 @@ const frame_type frame_tbl_cuts[] = {
 
 
 void get_frame_internal(const frame_type frame_table[], int frame, const char* frame_table_name, int count) {
+	static const frame_type blank_frame = {255, 0, 0, 0, 0};
 	if (frame >= 0 && frame < count) {
 		cur_frame = frame_table[frame];
 	} else {
 		printf("Tried to use %s[%d], not in 0..%d\n", frame_table_name, frame, count-1);
-		static const frame_type blank_frame = {255, 0, 0, 0, 0};
 		cur_frame = blank_frame;
 	}
 }
@@ -591,14 +591,7 @@ void play_seq() {
 				}
 				// fallthrough!
 			case SEQ_JMP: // jump
-				#ifdef __PSP__
-				word command1 = (word)*(SEQTBL_0 + Char.curr_seq);
-				word command2 =  (word)*(SEQTBL_0 + Char.curr_seq+1);
-				//for some reason, this works, but normal pointer cast crashes (?)
-				Char.curr_seq = SDL_SwapLE16(command1 | (command2<<8));
-				#else
-				Char.curr_seq = SDL_SwapLE16(*(const word*)(SEQTBL_0 + Char.curr_seq));
-				#endif
+				Char.curr_seq = SDL_SwapLE16(READ_U16(SEQTBL_0 + Char.curr_seq));
 				break;
 			case SEQ_UP: // up
 				--Char.curr_row;
@@ -758,6 +751,7 @@ int get_tile_div_mod(int xpos) {
 	int x = xpos - SCREENSPACE_X;
 	int xl = x % TILE_SIZEX;
 	int xh = x / TILE_SIZEX;
+	int tblSize = 256;
 	if (xl < 0) {
 		// Integer division rounds towards zero, but we want to round down.
 		--xh;
@@ -781,7 +775,6 @@ int get_tile_div_mod(int xpos) {
 	}
 
 	// Considering the case of positive overflow
-	int tblSize = 256;
 
 	if (xpos >= tblSize) {
 		// In this case DOS PoP reads the bytes directly after tile_div_tbl[], that is: and tile_mod_tbl[]
@@ -1099,6 +1092,7 @@ void check_on_floor() {
 void start_fall() {
 	word seq_id;
 	short frame = Char.frame;
+	int tile;
 	Char.sword = sword_0_sheathed;
 	inc_curr_row();
 	start_chompers();
@@ -1153,7 +1147,7 @@ void start_fall() {
 		in_wall();
 		return;
 	}
-	int tile = get_tile_infrontof_char();
+	tile = get_tile_infrontof_char();
 	if (tile == tiles_20_wall
 
 		#ifdef FIX_RUNNING_JUMP_THROUGH_TAPESTRY
@@ -1326,8 +1320,9 @@ int distance_to_edge_weight() {
 
 // seg006:0B94
 int distance_to_edge(int xpos) {
+	short distance;
 	get_tile_div_mod_m7(xpos);
-	short distance = obj_xl;
+	distance = obj_xl;
 	if (Char.direction == dir_0_right) {
 		distance = TILE_RIGHTX - distance;
 	}
@@ -1412,8 +1407,8 @@ void control_kid() {
 #endif
 		do_demo();
 		control();
-		// The player can start a new game or load a saved game during the demo.
-		word key = key_test_quit();
+		{ word key;
+		key = key_test_quit();
 		if (key == (SDL_SCANCODE_L | WITH_CTRL)) { // Ctrl+L
 			if (load_game()) {
 				start_game();
@@ -1423,6 +1418,7 @@ void control_kid() {
 				start_level = custom->first_level; // 1
 				start_game();
 			}
+		}
 		}
 	} else {
 		rest_ctrl_1();
@@ -1518,8 +1514,9 @@ void user_control() {
 
 // seg006:0DDC
 void flip_control_x() {
+	byte temp;
 	control_x = -control_x;
-	byte temp = control_forward;
+	temp = control_forward;
 	control_forward = control_backward;
 	control_backward = temp;
 }
@@ -1720,10 +1717,13 @@ void check_press() {
 void check_spike_below() {
 	short not_finished;
 	short right_col = get_tile_div_mod_m7(char_x_right);
+	short row;
+	short room;
+	short col;
 	if (right_col < 0) return;
-	short row = Char.curr_row;
-	short room = Char.room;
-	for (short col = get_tile_div_mod_m7(char_x_left); col <= right_col; ++col) {
+	row = Char.curr_row;
+	room = Char.room;
+	for (col = get_tile_div_mod_m7(char_x_left); col <= right_col; ++col) {
 		row = Char.curr_row;
 		do {
 			not_finished = 0;
@@ -1751,6 +1751,7 @@ void clip_char() {
 	short action = Char.action;
 	short room = Char.room;
 	short row = Char.curr_row;
+	short col;
 	reset_obj_clip();
 #ifdef USE_SUPER_HIGH_JUMP
 	// Clip kid during a super jump when jumping up into
@@ -1787,7 +1788,7 @@ void clip_char() {
 				}
 			}
 		}
-		short col = get_tile_div_mod(char_x_left_coll - 4);
+		col = get_tile_div_mod(char_x_left_coll - 4);
 		if (get_tile(room, col + 1, row) == tiles_7_doortop_with_floor ||
 			curr_tile2 == tiles_12_doortop
 		) {
@@ -2133,12 +2134,13 @@ void control_guard_inactive() {
 
 // seg006:1852
 int char_opp_dist() {
+	short distance;
 	// >0 if Opp is in front of char
 	// <0 if Opp is behind char
 	if (Char.room != Opp.room) {
 		return 999;
 	}
-	short distance = Opp.x - Char.x;
+	distance = Opp.x - Char.x;
 	if (Char.direction < dir_0_right) {
 		distance = -distance;
 	}

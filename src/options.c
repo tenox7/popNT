@@ -37,7 +37,7 @@ void turn_custom_options_on_off(byte new_state) {
 	custom = (new_state) ? &custom_saved : &custom_defaults;
 }
 
-// .ini file parser adapted from https://gist.github.com/OrangeTide/947070
+/* .ini file parser adapted from https://gist.github.com/OrangeTide/947070 */
 /* Load an .ini format file
  * filename - path to a file
  * report - callback can return non-zero to stop, the callback error code is
@@ -82,54 +82,69 @@ int ini_load(const char *filename,
 	return 0;
 }
 
-NAMES_LIST(use_hardware_acceleration_names, {"false", "true", "default"}); // this is needed because use_hardware_acceleration is not a bool!
-NAMES_LIST(level_type_names, {"dungeon", "palace"});
-//NAMES_LIST(guard_type_names, {"guard", "fat", "skel", "vizier", "shadow"});
-// NAMES_LIST must start from 0, so I need KEY_VALUE_LIST if I want to assign a name to -1.
-KEY_VALUE_LIST(guard_type_names, {{"none", -1}, {"guard", 0}, {"fat", 1}, {"skel", 2}, {"vizier", 3}, {"shadow", 4}});
-NAMES_LIST(tile_type_names, {
-				"empty", "floor", "spike", "pillar", "gate",                                        // 0..4
-				"stuck", "closer", "doortop_with_floor", "bigpillar_bottom", "bigpillar_top",       // 5..9
-				"potion", "loose", "doortop", "mirror", "debris",                                   // 10..14
-				"opener", "level_door_left", "level_door_right", "chomper", "torch",                // 15..19
-				"wall", "skeleton", "sword", "balcony_left", "balcony_right",                       // 20..24
-				"lattice_pillar", "lattice_down", "lattice_small", "lattice_left", "lattice_right", // 25..29
-				"torch_with_debris", // 30
-});
-NAMES_LIST(scaling_type_names, {"sharp", "fuzzy", "blurry"});
-NAMES_LIST(row_names, {"top", "middle", "bottom"});
-KEY_VALUE_LIST(direction_names, {{"left", dir_FF_left}, {"right", dir_0_right}});
-NAMES_LIST(entry_pose_names, {"turning", "falling", "running"});
-// 16 is higher than any level, so some options can be disabled by setting it to this value
-KEY_VALUE_LIST(never_is_16, {{"Never", 16}});
+static const char use_hardware_acceleration_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {"false", "true", "default"};
+static names_list_type use_hardware_acceleration_names_list = {0, {(char*)&use_hardware_acceleration_names, COUNT(use_hardware_acceleration_names)}};
+
+static const char level_type_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {"dungeon", "palace"};
+static names_list_type level_type_names_list = {0, {(char*)&level_type_names, COUNT(level_type_names)}};
+
+static const key_value_type guard_type_names[] = {{"none", -1}, {"guard", 0}, {"fat", 1}, {"skel", 2}, {"vizier", 3}, {"shadow", 4}};
+static names_list_type guard_type_names_list = {1, {(char*)&guard_type_names, COUNT(guard_type_names)}};
+
+static const char tile_type_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {
+	"empty", "floor", "spike", "pillar", "gate",
+	"stuck", "closer", "doortop_with_floor", "bigpillar_bottom", "bigpillar_top",
+	"potion", "loose", "doortop", "mirror", "debris",
+	"opener", "level_door_left", "level_door_right", "chomper", "torch",
+	"wall", "skeleton", "sword", "balcony_left", "balcony_right",
+	"lattice_pillar", "lattice_down", "lattice_small", "lattice_left", "lattice_right",
+	"torch_with_debris"
+};
+static names_list_type tile_type_names_list = {0, {(char*)&tile_type_names, COUNT(tile_type_names)}};
+
+static const char scaling_type_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {"sharp", "fuzzy", "blurry"};
+static names_list_type scaling_type_names_list = {0, {(char*)&scaling_type_names, COUNT(scaling_type_names)}};
+
+static const char row_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {"top", "middle", "bottom"};
+static names_list_type row_names_list = {0, {(char*)&row_names, COUNT(row_names)}};
+
+static const key_value_type direction_names[] = {{"left", dir_FF_left}, {"right", dir_0_right}};
+static names_list_type direction_names_list = {1, {(char*)&direction_names, COUNT(direction_names)}};
+
+static const char entry_pose_names[][MAX_OPTION_VALUE_NAME_LENGTH] = {"turning", "falling", "running"};
+static names_list_type entry_pose_names_list = {0, {(char*)&entry_pose_names, COUNT(entry_pose_names)}};
+
+const key_value_type never_is_16[] = {{"Never", 16}};
+names_list_type never_is_16_list = {1, {(char*)&never_is_16, COUNT(never_is_16)}};
 
 #define INI_NO_VALID_NAME (-9999)
 
 static int ini_get_named_value(const char* value, names_list_type* value_names) {
-	if (value_names != NULL) {
-		if (value_names->type == 0 /*names list*/) {
-			char *base_ptr = (char *) value_names->names.data;
-			for (int i = 0; i < value_names->names.count; ++i) {
-				char *name = (base_ptr + i * MAX_OPTION_VALUE_NAME_LENGTH);
-				if (strcasecmp(value, name) == 0) return i;
-			}
-		} else if (value_names->type == 1 /*key/value list*/) {
-			for (int i = 0; i < value_names->kv_pairs.count; ++i) {
-				key_value_type* kv_pair = value_names->kv_pairs.data + i;
-				if (strcasecmp(value, kv_pair->key) == 0) return kv_pair->value;
-			}
+	int i;
+	if (value_names == NULL)
+		return INI_NO_VALID_NAME;
+	if (value_names->type == 0) {
+		char *base_ptr = (char *) value_names->names.data;
+		for (i = 0; i < value_names->names.count; ++i) {
+			char *name = (base_ptr + i * MAX_OPTION_VALUE_NAME_LENGTH);
+			if (strcasecmp(value, name) == 0) return i;
+		}
+	} else if (value_names->type == 1) {
+		for (i = 0; i < value_names->kv_pairs.count; ++i) {
+			key_value_type* kv_pair = value_names->kv_pairs.data + i;
+			if (strcasecmp(value, kv_pair->key) == 0) return kv_pair->value;
 		}
 	}
-	return INI_NO_VALID_NAME; // failure
+	return INI_NO_VALID_NAME;
 }
 
 static int ini_process_boolean(const char* curr_name, const char* value, const char* option_name, byte* target) {
 	if(strcasecmp(curr_name, option_name) == 0) {
 		if (strcasecmp(value, "true") == 0) *target = 1;
 		else if (strcasecmp(value, "false") == 0) *target = 0;
-		return 1; // finished; don't look for more possible options that curr_name can be
+		return 1;
 	}
-	return 0; // not the right option; should check another option_name
+	return 0;
 }
 
 #define ini_process_numeric_func(data_type) \
@@ -139,9 +154,9 @@ static int ini_process_##data_type(const char* curr_name, const char* value, con
 			int named_value = ini_get_named_value(value, value_names); \
 			*target = (named_value == INI_NO_VALID_NAME) ? ((data_type) strtoimax(value, NULL, 0)) : ((data_type) named_value); \
 		} \
-		return 1; /* finished; don't look for more possible options that curr_name can be */ \
+		return 1; \
 	} \
-	return 0; /* not the right option; should check another option_name */ \
+	return 0; \
 }
 ini_process_numeric_func(word)
 ini_process_numeric_func(short)
@@ -151,11 +166,9 @@ ini_process_numeric_func(int)
 
 static int global_ini_callback(const char *section, const char *name, const char *value)
 {
-	//fprintf(stdout, "[%s] '%s'='%s'\n", section, name, value);
-
+	int ini_level = -1;
+	int ini_skill = -1;
 	#define check_ini_section(section_name)    (strcasecmp(section, section_name) == 0)
-
-	// Make sure that we return successfully as soon as name matches the correct option_name
 	#define process_word(option_name, target, value_names)                           \
 	if (ini_process_word(name, value, option_name, target, value_names)) return 1;
 
@@ -313,35 +326,33 @@ static int global_ini_callback(const char *section, const char *name, const char
 		process_byte("drawn_tile_left_level_edge", &custom_saved.drawn_tile_left_level_edge, &tile_type_names_list);
 		process_byte("level_edge_hit_tile", &custom_saved.level_edge_hit_tile, &tile_type_names_list);
 		process_boolean("allow_triggering_any_tile", &custom_saved.allow_triggering_any_tile);
-		// TODO: Maybe allow automatically choosing the correct WDA, depending on the loaded VDUNGEON.DAT?
 		process_boolean("enable_wda_in_palace", &custom_saved.enable_wda_in_palace);
 
-		// Options that change the hard-coded color palette (options 'vga_color_0', 'vga_color_1', ...)
-		static const char prefix[] = "vga_color_";
-		static const size_t prefix_len = sizeof(prefix)-1;
-		int ini_palette_color = -1;
-		if (strncasecmp(name, prefix, prefix_len) == 0 && sscanf(name+prefix_len, "%d", &ini_palette_color) == 1) {
-			if (!(ini_palette_color >= 0 && ini_palette_color <= 15)) return 0;
-
-			byte rgb[3] = {0};
-			if (strcasecmp(value, "default") != 0) {
-				// We want to parse an rgb string with three entries like this: "255, 255, 255"
-				char* start = (char*) value;
-				char* end   = (char*) value;
-				for (int i = 0; i < 3 && *end != '\0'; ++i) {
-					rgb[i] = (byte) strtol(start, &end, 0); // convert this entry into a number 0..255
-
-					while (*end == ',' || *end == ' ') {
-						++end; // skip delimiter characters or whitespace
+		{
+			static const char prefix[] = "vga_color_";
+			int ini_palette_color = -1;
+			if (strncasecmp(name, prefix, sizeof(prefix)-1) == 0 && sscanf(name+sizeof(prefix)-1, "%d", &ini_palette_color) == 1) {
+				byte rgb[3] = {0, 0, 0};
+				if (!(ini_palette_color >= 0 && ini_palette_color <= 15)) return 0;
+				if (strcasecmp(value, "default") != 0) {
+					char* start = (char*) value;
+					char* end   = (char*) value;
+					int i;
+					for (i = 0; i < 3 && *end != '\0'; ++i) {
+						rgb[i] = (byte) strtol(start, &end, 0);
+						while (*end == ',' || *end == ' ')
+							++end;
+						start = end;
 					}
-					start = end; // start parsing the next entry here
 				}
+				{
+					rgb_type* palette_color = &custom_saved.vga_palette[ini_palette_color];
+					palette_color->r = rgb[0] / 4;
+					palette_color->g = rgb[1] / 4;
+					palette_color->b = rgb[2] / 4;
+				}
+				return 1;
 			}
-			rgb_type* palette_color = &custom_saved.vga_palette[ini_palette_color];
-			palette_color->r = rgb[0] / 4; // the palette uses values 0..63, not 0..255
-			palette_color->g = rgb[1] / 4;
-			palette_color->b = rgb[2] / 4;
-			return 1;
 		}
 		process_word("first_level", &custom_saved.first_level, NULL);
 		process_boolean("skip_title", &custom_saved.skip_title);
@@ -409,19 +420,16 @@ static int global_ini_callback(const char *section, const char *name, const char
 		process_byte("fight_speed", &custom_saved.fight_speed, NULL);
 		process_byte("chomper_speed", &custom_saved.chomper_speed, NULL);
 		process_boolean("no_mouse_in_ending", &custom_saved.no_mouse_in_ending);
-	} // end of section [CustomGameplay]
+	}
 
-	// [Level 1], etc.
-	int ini_level = -1;
 	if (strncasecmp(section, "Level ", 6) == 0 && sscanf(section+6, "%d", &ini_level) == 1) {
 		if (ini_level >= 0 && ini_level <= 15) {
-			// TODO: And maybe allow new types in addition to the existing ones.
+			byte cutscene_index = 0xFF;
 			process_byte("level_type", &custom_saved.tbl_level_type[ini_level], &level_type_names_list);
 			process_word("level_color", &custom_saved.tbl_level_color[ini_level], NULL);
 			process_short("guard_type", &custom_saved.tbl_guard_type[ini_level], &guard_type_names_list);
 			process_byte("guard_hp", &custom_saved.tbl_guard_hp[ini_level], NULL);
 
-			byte cutscene_index = 0xFF;
 			if (ini_process_byte(name, value, "cutscene", &cutscene_index, NULL) == 1) {
 				if (cutscene_index < COUNT(custom_saved.tbl_cutscenes_by_index)) {
 					custom_saved.tbl_cutscenes_by_index[ini_level] = cutscene_index;
@@ -436,8 +444,6 @@ static int global_ini_callback(const char *section, const char *name, const char
 		}
 	}
 
-	// [Skill 0], etc.
-	int ini_skill = -1;
 	if (strncasecmp(section, "Skill ", 6) == 0 && sscanf(section+6, "%d", &ini_skill) == 1) {
 		if (ini_skill >= 0 && ini_skill < NUM_GUARD_SKILLS) {
 			process_word("strikeprob",    &custom_saved.strikeprob   [ini_skill], NULL);
@@ -455,7 +461,6 @@ static int global_ini_callback(const char *section, const char *name, const char
 	return 0;
 }
 
-// Callback for a mod-specific INI configuration (that may overrule SDLPoP.ini for SOME but not all options):
 static int mod_ini_callback(const char *section, const char *name, const char *value) {
 	if (check_ini_section("Enhancements") || check_ini_section("CustomGameplay") ||
 		strncasecmp(section, "Level ", 6) == 0 ||
@@ -492,8 +497,6 @@ void set_options_to_default() {
 #ifdef USE_LIGHTING
 	enable_lighting = 0;
 #endif
-	// By default, all the fixes are used, unless otherwise specified.
-	// So, if one of these options is omitted from the INI file, they default to true.
 	memset(&fixes_saved, 1, sizeof(fixes_saved));
 	custom_saved = custom_defaults;
 	turn_fixes_and_enhancements_on_off(0);
@@ -502,17 +505,14 @@ void set_options_to_default() {
 
 void load_global_options() {
 	set_options_to_default();
-	ini_load(locate_file("SDLPoP.ini"), global_ini_callback); // global configuration
-	load_dos_exe_modifications("."); // read PRINCE.EXE in the current working directory
+	ini_load(locate_file("SDLPoP.ini"), global_ini_callback);
+	load_dos_exe_modifications(".");
 }
 
 void check_mod_param() {
-	// The 'mod' command line argument can override the levelset choice in SDLPoP.ini
-	// usage: prince mod "Mod Name"
-	// TODO: maybe allow absolute paths, instead of only paths relative to the mods folder?
 	const char* mod_param = check_param("mod");
 	if (mod_param != NULL) {
-		use_custom_levelset = true;
+		use_custom_levelset = 1;
 		memset(levelset_name, 0, sizeof(levelset_name));
 		snprintf_check(levelset_name, sizeof(levelset_name), "%s", mod_param);
 	}
@@ -527,12 +527,12 @@ enum dos_version {
 	dos_14_unpacked = 5,
 };
 
-bool read_exe_bytes(void* dest, size_t nbytes, byte* exe_memory, int exe_offset, int exe_size) {
-	if (exe_offset < 0) return false; // Happens if a CusPop modification is not available for the mod's EXE version.
+int read_exe_bytes(void* dest, size_t nbytes, byte* exe_memory, int exe_offset, int exe_size) {
+	if (exe_offset < 0) return 0;
 	if (exe_offset < exe_size) {
 		memcpy(dest, exe_memory + exe_offset, nbytes);
 	}
-	return true;
+	return 1;
 }
 
 int identify_dos_exe_version(int filesize) {
@@ -551,16 +551,18 @@ int identify_dos_exe_version(int filesize) {
 
 void load_dos_exe_modifications(const char* folder_name) {
 	char filename[POP_MAX_PATH];
-	snprintf_check(filename, sizeof(filename), "%s/%s", folder_name, "PRINCE.EXE");
-	FILE* fp = fopen(filename, "rb");
-
+	FILE* fp;
 	int dos_version = -1;
 	struct stat info;
+	directory_listing_type* directory_listing;
+
+	snprintf_check(filename, sizeof(filename), "%s/%s", folder_name, "PRINCE.EXE");
+	fp = fopen(filename, "rb");
+
 	if (fp != NULL && fstat(fileno(fp), &info) == 0 && info.st_size > 0) {
 		dos_version = identify_dos_exe_version((int)info.st_size);
 	} else {
-		// PRINCE.EXE not found, try to search for other .EXE files in the same folder.
-		directory_listing_type* directory_listing = create_directory_listing_and_find_first_file(folder_name, "exe");
+		directory_listing = create_directory_listing_and_find_first_file(folder_name, "exe");
 		if (directory_listing != NULL) {
 			do {
 				char* current_filename = get_current_filename_from_directory_listing(directory_listing);
@@ -568,91 +570,85 @@ void load_dos_exe_modifications(const char* folder_name) {
 				fp = fopen(filename, "rb");
 				if (fp != NULL && fstat(fileno(fp), &info) == 0 && info.st_size > 0) {
 					dos_version = identify_dos_exe_version((int)info.st_size);
-					if (dos_version >= 0) {
-						break; // We found a DOS executable with the right size!
-					}
+					if (dos_version >= 0)
+						break;
 					fclose(fp);
 					fp = NULL;
 				}
-				// Keep looking until we find an .EXE with the right size, or until there are no .EXE files left.
 			} while (find_next_file(directory_listing));
 			close_directory_listing(directory_listing);
 		}
 	}
 
 	if (dos_version >= 0) {
+		byte temp_bytes[64] = {0};
+		word temp_word = 0;
+		int read_ok;
+		byte* exe_memory = (byte*)malloc((size_t) info.st_size);
 		turn_custom_options_on_off(1);
-		byte* exe_memory = malloc((size_t) info.st_size);
 		if (fread(exe_memory, (size_t) info.st_size, 1, fp) != 1) {
 			fprintf(stderr, "Could not read %s!?\n", filename);
 			fclose(fp);
 			return;
 		}
 
-		byte temp_bytes[64] = {0};
-		word temp_word = 0;
-		bool read_ok;
-
-#define process(x, nbytes, ...) \
+#define process6(x, nbytes, o0, o1, o2, o3, o4, o5) \
 		do { \
-			static const int offsets[6] = __VA_ARGS__; \
+			static const int offsets[6] = {o0, o1, o2, o3, o4, o5}; \
 			int offset = offsets[dos_version]; \
 			read_ok = read_exe_bytes(x, nbytes, exe_memory, offset, (int)info.st_size); \
 		} while(0)
 
-		// Offsets and comparisons are derived from princehack.xml
-		process(&custom_saved.start_minutes_left, 2, {0x04a23, 0x060d3, 0x04ea3, 0x055e3, 0x0495f, 0x05a8f});
-		process(&custom_saved.start_ticks_left, 2, {0x04a29, 0x060d9, 0x04ea9, 0x055e9, 0x04965, 0x05a95});
-		process(&custom_saved.start_hitp, 2, {0x04a2f, 0x060df, 0x04eaf, 0x055ef, 0x0496b, 0x05a9b});
-		process(&custom_saved.first_level, 2, {0x00707, 0x01db7, 0x007db, 0x00f1b, 0x0079f, 0x018cf});
-		process(&custom_saved.max_hitp_allowed, 2, {0x013f1, 0x02aa1, 0x015ac, 0x01cec, 0x014a3, 0x025d3});
-		process(&custom_saved.saving_allowed_first_level, 1, {0x007c8, 0x01e78, 0x008b4, 0x00ff4, 0x00878, 0x019a8});
+		process6(&custom_saved.start_minutes_left, 2, 0x04a23, 0x060d3, 0x04ea3, 0x055e3, 0x0495f, 0x05a8f);
+		process6(&custom_saved.start_ticks_left, 2, 0x04a29, 0x060d9, 0x04ea9, 0x055e9, 0x04965, 0x05a95);
+		process6(&custom_saved.start_hitp, 2, 0x04a2f, 0x060df, 0x04eaf, 0x055ef, 0x0496b, 0x05a9b);
+		process6(&custom_saved.first_level, 2, 0x00707, 0x01db7, 0x007db, 0x00f1b, 0x0079f, 0x018cf);
+		process6(&custom_saved.max_hitp_allowed, 2, 0x013f1, 0x02aa1, 0x015ac, 0x01cec, 0x014a3, 0x025d3);
+		process6(&custom_saved.saving_allowed_first_level, 1, 0x007c8, 0x01e78, 0x008b4, 0x00ff4, 0x00878, 0x019a8);
 		if (read_ok) custom_saved.saving_allowed_first_level += 1;
-		process(&custom_saved.saving_allowed_last_level, 1, {0x007cf, 0x01e7f, 0x008bb, 0x00ffb, 0x0087f, 0x019af});
+		process6(&custom_saved.saving_allowed_last_level, 1, 0x007cf, 0x01e7f, 0x008bb, 0x00ffb, 0x0087f, 0x019af);
 		if (read_ok) custom_saved.saving_allowed_last_level -= 1;
 		if (dos_version == dos_10_packed || dos_version == dos_10_unpacked) {
 			static const byte comparison[] = {0xa3, 0x92, 0x4e, 0xa3, 0x5c, 0x40, 0xa3, 0x8e, 0x4e, 0xa2, 0x2a,
 			                                  0x3d, 0xa2, 0x29, 0x3d, 0xa3, 0xee, 0x42, 0xa2, 0x2e, 0x3d, 0x98};
-			process(temp_bytes, COUNT(comparison), {0x04c9b, 0x0634b, -1, -1, -1, -1});
+			process6(temp_bytes, COUNT(comparison), 0x04c9b, 0x0634b, -1, -1, -1, -1);
 			custom_saved.start_upside_down = (memcmp(temp_bytes, comparison, COUNT(comparison)) != 0);
 		}
-		process(&custom_saved.start_in_blind_mode, 1, {0x04e46, 0x064f6, 0x052ce, 0x05a0e, 0x04d8a, 0x05eba});
-		process(&custom_saved.copyprot_level, 2, {0x1aaeb, 0x1c62e, 0x1b89b, 0x1c49e, 0x17c3d, 0x18e18});
-		process(&custom_saved.drawn_tile_top_level_edge, 1, {0x0a1f0, 0x0b8a0, 0x0a69c, 0x0addc, 0x0a158, 0x0b288});
-		process(&custom_saved.drawn_tile_left_level_edge, 1, {0x0a26b, 0x0b91b, -1, -1, -1, -1});
-		process(&custom_saved.level_edge_hit_tile, 1, {0x06f02, 0x085b2, -1, -1, -1, -1});
-		process(temp_bytes, 2, {0x9111, 0xA7C1, 0x95BE, 0x9CFE, 0x907A, 0xA1AA}); // allow triggering any tile
+		process6(&custom_saved.start_in_blind_mode, 1, 0x04e46, 0x064f6, 0x052ce, 0x05a0e, 0x04d8a, 0x05eba);
+		process6(&custom_saved.copyprot_level, 2, 0x1aaeb, 0x1c62e, 0x1b89b, 0x1c49e, 0x17c3d, 0x18e18);
+		process6(&custom_saved.drawn_tile_top_level_edge, 1, 0x0a1f0, 0x0b8a0, 0x0a69c, 0x0addc, 0x0a158, 0x0b288);
+		process6(&custom_saved.drawn_tile_left_level_edge, 1, 0x0a26b, 0x0b91b, -1, -1, -1, -1);
+		process6(&custom_saved.level_edge_hit_tile, 1, 0x06f02, 0x085b2, -1, -1, -1, -1);
+		process6(temp_bytes, 2, 0x9111, 0xA7C1, 0x95BE, 0x9CFE, 0x907A, 0xA1AA);
 		if (read_ok) {
-			custom_saved.allow_triggering_any_tile = 
+			custom_saved.allow_triggering_any_tile =
 				(temp_bytes[0] == 0x75 && temp_bytes[1] == 0x13) ||
-				(temp_bytes[0] == 0x90 && temp_bytes[1] == 0x90); // used in Micro Palace
+				(temp_bytes[0] == 0x90 && temp_bytes[1] == 0x90);
 		}
-		process(temp_bytes, 1, {0x0a7bb, 0x0be6b, 0x0ac67, 0x0b3a7, 0x0a723, 0x0b853}); // enable WDA in palace
+		process6(temp_bytes, 1, 0x0a7bb, 0x0be6b, 0x0ac67, 0x0b3a7, 0x0a723, 0x0b853);
 		if (read_ok) custom_saved.enable_wda_in_palace = (temp_bytes[0] != 116);
-		process(&custom_saved.tbl_level_type, 16, {0x1acea, 0x1c842, 0x1b9ae, 0x1c5c6, 0x17d4c, 0x18f3c});
-		process(&custom_saved.tbl_guard_hp, 16, {0x1b8a8, 0x1d46a, 0x1c6c5, 0x1d35c, 0x18a97, 0x19d06});
-		process(&custom_saved.tbl_guard_type, sizeof(short)*16, {-1, 0x1c964, -1, 0x1c702, -1, 0x1905e});
-		process(&custom_saved.vga_palette, sizeof(rgb_type)*16,  {0x1d141, 0x1f136, 0x1df5e, 0x1f02a, 0x1a335, 0x1b9de});
-		process(&temp_word, 2, {0x003e2, 0x01a92, 0x0046b, 0x00bab, 0x00455, 0x01585}); // titles skipping
+		process6(&custom_saved.tbl_level_type, 16, 0x1acea, 0x1c842, 0x1b9ae, 0x1c5c6, 0x17d4c, 0x18f3c);
+		process6(&custom_saved.tbl_guard_hp, 16, 0x1b8a8, 0x1d46a, 0x1c6c5, 0x1d35c, 0x18a97, 0x19d06);
+		process6(&custom_saved.tbl_guard_type, sizeof(short)*16, -1, 0x1c964, -1, 0x1c702, -1, 0x1905e);
+		process6(&custom_saved.vga_palette, sizeof(rgb_type)*16, 0x1d141, 0x1f136, 0x1df5e, 0x1f02a, 0x1a335, 0x1b9de);
+		process6(&temp_word, 2, 0x003e2, 0x01a92, 0x0046b, 0x00bab, 0x00455, 0x01585);
 		if (read_ok) custom_saved.skip_title = (temp_word != 63558);
-		process(&custom_saved.shift_L_allowed_until_level, 1, {0x0085c, 0x01f0c, 0x00955, 0x01095, 0x00919, 0x01a49});
+		process6(&custom_saved.shift_L_allowed_until_level, 1, 0x0085c, 0x01f0c, 0x00955, 0x01095, 0x00919, 0x01a49);
 		if (read_ok) custom_saved.shift_L_allowed_until_level += 1;
-		process(&custom_saved.shift_L_reduced_minutes, 2, {0x008ad, 0x01f5d, 0x00991, 0x010d1, 0x00955, 0x01a85});
-		process(&custom_saved.shift_L_reduced_ticks, 2, {0x008b3, 0x01f63, 0x00997, 0x010d7, 0x0095b, 0x01a8b});
-		// TODO: cutscenes
-		// TODO: color variations
-		process(&custom_saved.demo_hitp, 1, {0x04c28, 0x062d8, 0x050b0, 0x057f0, 0x04b6c, 0x05c9c});
-		process(&custom_saved.demo_end_room, 1, {0x00b40, 0x021f0, 0x00c25, 0x01365, 0x00be9, 0x01d19});
-		process(&custom_saved.intro_music_level, 1, {0x04c37, 0x062e7, 0x050bf, 0x057ff, 0x04b7b, 0x05cab});
-		process(temp_bytes, 1, {0x04b29, 0x061d9, 0x04fa9, 0x056e9, 0x04a65, 0x05b95}); // where the kid will have the sword
+		process6(&custom_saved.shift_L_reduced_minutes, 2, 0x008ad, 0x01f5d, 0x00991, 0x010d1, 0x00955, 0x01a85);
+		process6(&custom_saved.shift_L_reduced_ticks, 2, 0x008b3, 0x01f63, 0x00997, 0x010d7, 0x0095b, 0x01a8b);
+		process6(&custom_saved.demo_hitp, 1, 0x04c28, 0x062d8, 0x050b0, 0x057f0, 0x04b6c, 0x05c9c);
+		process6(&custom_saved.demo_end_room, 1, 0x00b40, 0x021f0, 0x00c25, 0x01365, 0x00be9, 0x01d19);
+		process6(&custom_saved.intro_music_level, 1, 0x04c37, 0x062e7, 0x050bf, 0x057ff, 0x04b7b, 0x05cab);
+		process6(temp_bytes, 1, 0x04b29, 0x061d9, 0x04fa9, 0x056e9, 0x04a65, 0x05b95);
 		if (read_ok) custom_saved.have_sword_from_level = (temp_bytes[0] == 0xEB) ? 16 /*never*/ : 2;
-		process(&custom_saved.checkpoint_level, 1, {0x04b9e, 0x0624e, 0x05026, 0x05766, 0x04ae2, 0x05c12});
-		process(&custom_saved.checkpoint_respawn_dir, 1, {0x04bac, 0x0625c, 0x05034, 0x05774, 0x04af0, 0x05c20});
-		process(&custom_saved.checkpoint_respawn_room, 1, {0x04bb1, 0x06261, 0x05039, 0x05779, 0x04af5, 0x05c25});
-		process(&custom_saved.checkpoint_respawn_tilepos, 1, {0x04bb6, 0x06266, 0x0503e, 0x0577e, 0x04afa, 0x05c2a});
-		process(&custom_saved.checkpoint_clear_tile_room, 1, {0x04bb8, 0x06268, 0x05040, 0x05780, 0x04afc, 0x05c2c});
-		process(&custom_saved.checkpoint_clear_tile_col, 1, {0x04bbc, 0x0626c, 0x05044, 0x05784, 0x04b00, 0x05c30});
-		process(&temp_word, 2, {0x04bbf, 0x0626f, 0x05047, 0x05787, 0x04b03, 0x05c33}); // row of the tile to clear
+		process6(&custom_saved.checkpoint_level, 1, 0x04b9e, 0x0624e, 0x05026, 0x05766, 0x04ae2, 0x05c12);
+		process6(&custom_saved.checkpoint_respawn_dir, 1, 0x04bac, 0x0625c, 0x05034, 0x05774, 0x04af0, 0x05c20);
+		process6(&custom_saved.checkpoint_respawn_room, 1, 0x04bb1, 0x06261, 0x05039, 0x05779, 0x04af5, 0x05c25);
+		process6(&custom_saved.checkpoint_respawn_tilepos, 1, 0x04bb6, 0x06266, 0x0503e, 0x0577e, 0x04afa, 0x05c2a);
+		process6(&custom_saved.checkpoint_clear_tile_room, 1, 0x04bb8, 0x06268, 0x05040, 0x05780, 0x04afc, 0x05c2c);
+		process6(&custom_saved.checkpoint_clear_tile_col, 1, 0x04bbc, 0x0626c, 0x05044, 0x05784, 0x04b00, 0x05c30);
+		process6(&temp_word, 2, 0x04bbf, 0x0626f, 0x05047, 0x05787, 0x04b03, 0x05c33);
 		if (read_ok) {
 			if (temp_word == 49195) {
 				custom_saved.checkpoint_clear_tile_row = 0;
@@ -662,117 +658,106 @@ void load_dos_exe_modifications(const char* folder_name) {
 				custom_saved.checkpoint_clear_tile_row = 2;
 			}
 		}
-		process(&custom_saved.skeleton_level, 1, {0x046a4, 0x05d54, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_room, 1, {0x046b8, 0x05d68, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_trigger_column_1, 1, {0x046cc, 0x05d7c, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_trigger_column_2, 1, {0x046d3, 0x05d83, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_column, 1, {0x046de, 0x05d8e, 0x04b5e, 0x0529e, 0x0461a, 0x0574a});
-		process(&custom_saved.skeleton_row, 1, {0x046e2, 0x05d92, 0x04b62, 0x052a2, 0x0461e, 0x0574e});
-		process(temp_bytes, 1, {0x046c3, 0x05d73, -1, -1, -1, -1});
+		process6(&custom_saved.skeleton_level, 1, 0x046a4, 0x05d54, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_room, 1, 0x046b8, 0x05d68, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_trigger_column_1, 1, 0x046cc, 0x05d7c, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_trigger_column_2, 1, 0x046d3, 0x05d83, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_column, 1, 0x046de, 0x05d8e, 0x04b5e, 0x0529e, 0x0461a, 0x0574a);
+		process6(&custom_saved.skeleton_row, 1, 0x046e2, 0x05d92, 0x04b62, 0x052a2, 0x0461e, 0x0574e);
+		process6(temp_bytes, 1, 0x046c3, 0x05d73, -1, -1, -1, -1);
 		if (read_ok) custom_saved.skeleton_require_open_level_door = (temp_bytes[0] != 0xEB);
-		process(&custom_saved.skeleton_skill, 1, {0x0478f, 0x05e3f, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_reappear_room, 1, {0x03b32, 0x051e2, 0x03fb2, 0x046f2, 0x03a6e, 0x04b9e});
-		process(&custom_saved.skeleton_reappear_x, 1, {0x03b39, 0x051e9, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_reappear_row, 1, {0x03b3e, 0x051ee, -1, -1, -1, -1});
-		process(&custom_saved.skeleton_reappear_dir, 1, {0x03b43, 0x051f3, -1, -1, -1, -1});
-		process(&custom_saved.mirror_level, 1, {0x08dc7, 0x0a477, 0x09274, 0x099b4, 0x08d30, 0x09e60});
-		process(&custom_saved.mirror_room, 1, {0x08dcb, 0x0a47b, 0x09278, 0x099b8, 0x08d34, 0x09e64});
+		process6(&custom_saved.skeleton_skill, 1, 0x0478f, 0x05e3f, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_reappear_room, 1, 0x03b32, 0x051e2, 0x03fb2, 0x046f2, 0x03a6e, 0x04b9e);
+		process6(&custom_saved.skeleton_reappear_x, 1, 0x03b39, 0x051e9, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_reappear_row, 1, 0x03b3e, 0x051ee, -1, -1, -1, -1);
+		process6(&custom_saved.skeleton_reappear_dir, 1, 0x03b43, 0x051f3, -1, -1, -1, -1);
+		process6(&custom_saved.mirror_level, 1, 0x08dc7, 0x0a477, 0x09274, 0x099b4, 0x08d30, 0x09e60);
+		process6(&custom_saved.mirror_room, 1, 0x08dcb, 0x0a47b, 0x09278, 0x099b8, 0x08d34, 0x09e64);
 		if (read_ok) {
-			// If opcode is not initialized, I get a warning, but only with -O2: "'opcode' may be used uninitialized". Huh?
 			byte opcode = 0;
-			process(&opcode, 1, {0x08dcb+2, 0x0a47b+2, 0x09278+2, 0x099b8+2, 0x08d34+2, 0x09e64+2});
+			process6(&opcode, 1, 0x08dcb+2, 0x0a47b+2, 0x09278+2, 0x099b8+2, 0x08d34+2, 0x09e64+2);
 			if (opcode == 0x50) {
-				// 0xA47A: B8 XX 00 50 50 where XX is room *and* column!
 				custom_saved.mirror_column = custom_saved.mirror_room;
 			} else if (opcode == 0x6A) {
-				// 0xA47A: 68 RR 00 6A CC where RR is the room, CC is the column
-				process(&custom_saved.mirror_column, 1, {0x08dcb+3, 0x0a47b+3, 0x09278+3, 0x099b8+3, 0x08d34+3, 0x09e64+3});
+				process6(&custom_saved.mirror_column, 1, 0x08dcb+3, 0x0a47b+3, 0x09278+3, 0x099b8+3, 0x08d34+3, 0x09e64+3);
 			}
 		}
-		process(&temp_word, 2, {0x08dcf, 0x0a47f, 0x0927c, 0x099bc, 0x08d38, 0x09e68}); // mirror row
+		process6(&temp_word, 2, 0x08dcf, 0x0a47f, 0x0927c, 0x099bc, 0x08d38, 0x09e68);
 		if (read_ok) {
-			if (temp_word == 0xC02B) { // 2B C0 = sub ax,ax
+			if (temp_word == 0xC02B) {
 				custom_saved.mirror_row = 0;
-			} else if (temp_word == 0x01B0) { // B0 01 = mov al,1
+			} else if (temp_word == 0x01B0) {
 				custom_saved.mirror_row = 1;
-			} else if (temp_word == 0x02B0) { // B0 02 = mov al,2
+			} else if (temp_word == 0x02B0) {
 				custom_saved.mirror_row = 2;
 			}
 		}
-		process(&custom_saved.mirror_tile, 1, {0x08de3, 0x0a493, 0x09290, 0x099d0, 0x08d4c, 0x09e7c});
-		process(temp_bytes, 1, {0x051a2, 0x06852, 0x05636, 0x05d76, 0x050f2, 0x06222});
+		process6(&custom_saved.mirror_tile, 1, 0x08de3, 0x0a493, 0x09290, 0x099d0, 0x08d4c, 0x09e7c);
+		process6(temp_bytes, 1, 0x051a2, 0x06852, 0x05636, 0x05d76, 0x050f2, 0x06222);
 		if (read_ok) custom_saved.show_mirror_image = (temp_bytes[0] != 0xEB);
 
-		process(&custom_saved.shadow_steal_level, 1, {-1, 0x5017, -1, -1, -1, -1});
-		process(&custom_saved.shadow_steal_room, 1, {-1, 0x5021, -1, -1, -1, -1});
+		process6(&custom_saved.shadow_steal_level, 1, -1, 0x5017, -1, -1, -1, -1);
+		process6(&custom_saved.shadow_steal_room, 1, -1, 0x5021, -1, -1, -1, -1);
 
-		process(&custom_saved.shadow_step_level, 1, {-1, 0x4FE7, -1, -1, -1, -1});
-		process(&custom_saved.shadow_step_room, 1, {-1, 0x4FF1, -1, -1, -1, -1});
+		process6(&custom_saved.shadow_step_level, 1, -1, 0x4FE7, -1, -1, -1, -1);
+		process6(&custom_saved.shadow_step_room, 1, -1, 0x4FF1, -1, -1, -1, -1);
 
-		process(&custom_saved.falling_exit_level, 1, {0x03eb2, 0x05562, -1, -1, -1, -1});
-		process(&custom_saved.falling_exit_room, 1, {0x03eb9, 0x05569, -1, -1, -1, -1});
-		process(&custom_saved.falling_entry_level, 1, {0x04cbd, 0x0636d, -1, -1, -1, -1});
-		process(&custom_saved.falling_entry_room, 1, {0x04cc4, 0x06374, -1, -1, -1, -1});
-		process(&custom_saved.mouse_level, 1, {0x05166, 0x06816, 0x055fa, 0x05d3a, 0x050b6, 0x061e6});
-		process(&custom_saved.mouse_room, 1, {0x0516d, 0x0681d, 0x05601, 0x05d41, 0x050bd, 0x061ed});
-		process(&custom_saved.mouse_delay, 2, {0x0517f, 0x0682f, 0x05613, 0x05d53, 0x050cf, 0x061ff});
-		process(&custom_saved.mouse_object, 1, {0x054b3, 0x06b63, 0x05947, 0x06087, 0x05403, 0x06533});
-		process(&custom_saved.mouse_start_x, 1, {0x054b8, 0x06b68, 0x0594c, 0x0608c, 0x05408, 0x06538});
+		process6(&custom_saved.falling_exit_level, 1, 0x03eb2, 0x05562, -1, -1, -1, -1);
+		process6(&custom_saved.falling_exit_room, 1, 0x03eb9, 0x05569, -1, -1, -1, -1);
+		process6(&custom_saved.falling_entry_level, 1, 0x04cbd, 0x0636d, -1, -1, -1, -1);
+		process6(&custom_saved.falling_entry_room, 1, 0x04cc4, 0x06374, -1, -1, -1, -1);
+		process6(&custom_saved.mouse_level, 1, 0x05166, 0x06816, 0x055fa, 0x05d3a, 0x050b6, 0x061e6);
+		process6(&custom_saved.mouse_room, 1, 0x0516d, 0x0681d, 0x05601, 0x05d41, 0x050bd, 0x061ed);
+		process6(&custom_saved.mouse_delay, 2, 0x0517f, 0x0682f, 0x05613, 0x05d53, 0x050cf, 0x061ff);
+		process6(&custom_saved.mouse_object, 1, 0x054b3, 0x06b63, 0x05947, 0x06087, 0x05403, 0x06533);
+		process6(&custom_saved.mouse_start_x, 1, 0x054b8, 0x06b68, 0x0594c, 0x0608c, 0x05408, 0x06538);
 		{
 			byte level = 0;
 			byte room = 0;
-			process(&level, 1, {0x00b84, 0x02234, 0x00c6d, 0x013ad, 0x00c31, 0x01d61}); // seamless exit
-			if (read_ok) process(&room, 1, {0x00b8b, 0x0223b, 0x00c74, 0x013b4, 0x00c38, 0x01d68});
+			process6(&level, 1, 0x00b84, 0x02234, 0x00c6d, 0x013ad, 0x00c31, 0x01d61);
+			if (read_ok) process6(&room, 1, 0x00b8b, 0x0223b, 0x00c74, 0x013b4, 0x00c38, 0x01d68);
 			if (read_ok && level < 16) {
 				memset(custom_saved.tbl_seamless_exit, -1, sizeof(custom_saved.tbl_seamless_exit));
 				custom_saved.tbl_seamless_exit[level] = room;
 			}
 		}
-		process(&custom_saved.loose_tiles_level, 1, {0x0120d, 0x028bd, -1, -1, 0x01358, 0x02488});
-		process(&custom_saved.loose_tiles_room_1, 1, {0x01214, 0x028c4, -1, -1, 0x0135f, 0x0248f});
-		process(&custom_saved.loose_tiles_room_2, 1, {0x0121b, 0x028cb, -1, -1, 0x01366, 0x02496});
-		process(&custom_saved.loose_tiles_first_tile, 1, {0x0122e, 0x028de, -1, -1, 0x01379, 0x024a9});
-		process(&custom_saved.loose_tiles_last_tile, 1, {0x0124d, 0x028fd, -1, -1, 0x01398, 0x024c8});
-		process(&custom_saved.jaffar_victory_level, 1, {0x084b3, 0x09b63, 0x08963, 0x090a3, 0x0841f, 0x0954f});
-		process(&custom_saved.jaffar_victory_flash_time, 2, {0x084c0, 0x09b70, 0x08970, 0x090b0, 0x0842c, 0x0955c});
-		process(&custom_saved.hide_level_number_from_level, 2, {0x0c3d9, 0x0da89, 0x0c8cd, 0x0d00d, 0x0c389, 0x0d4b9});
-		process(&temp_bytes, 1, {0x0c3d9, 0x0da89, 0x0c8cd, 0x0d00d, 0x0c389, 0x0d4b9});
+		process6(&custom_saved.loose_tiles_level, 1, 0x0120d, 0x028bd, -1, -1, 0x01358, 0x02488);
+		process6(&custom_saved.loose_tiles_room_1, 1, 0x01214, 0x028c4, -1, -1, 0x0135f, 0x0248f);
+		process6(&custom_saved.loose_tiles_room_2, 1, 0x0121b, 0x028cb, -1, -1, 0x01366, 0x02496);
+		process6(&custom_saved.loose_tiles_first_tile, 1, 0x0122e, 0x028de, -1, -1, 0x01379, 0x024a9);
+		process6(&custom_saved.loose_tiles_last_tile, 1, 0x0124d, 0x028fd, -1, -1, 0x01398, 0x024c8);
+		process6(&custom_saved.jaffar_victory_level, 1, 0x084b3, 0x09b63, 0x08963, 0x090a3, 0x0841f, 0x0954f);
+		process6(&custom_saved.jaffar_victory_flash_time, 2, 0x084c0, 0x09b70, 0x08970, 0x090b0, 0x0842c, 0x0955c);
+		process6(&custom_saved.hide_level_number_from_level, 2, 0x0c3d9, 0x0da89, 0x0c8cd, 0x0d00d, 0x0c389, 0x0d4b9);
+		process6(&temp_bytes, 1, 0x0c3d9, 0x0da89, 0x0c8cd, 0x0d00d, 0x0c389, 0x0d4b9);
 		if (read_ok) custom_saved.level_13_level_number = (temp_bytes[0] == 0xEB) ? 13 : 12;
-		process(&custom_saved.victory_stops_time_level, 1, {0x0c2e0, 0x0d990, -1, -1, -1, -1});
-		process(&custom_saved.win_level, 1, {0x011dc, 0x0288c, 0x01397, 0x01ad7, 0x01327, 0x02457});
-		process(&custom_saved.win_room, 1, {0x011e3, 0x02893, 0x0139e, 0x01ade, 0x0132e, 0x0245e});
-		process(&custom_saved.loose_floor_delay, 1, {0x9536, 0xABE6, -1, -1, -1, -1});
+		process6(&custom_saved.victory_stops_time_level, 1, 0x0c2e0, 0x0d990, -1, -1, -1, -1);
+		process6(&custom_saved.win_level, 1, 0x011dc, 0x0288c, 0x01397, 0x01ad7, 0x01327, 0x02457);
+		process6(&custom_saved.win_room, 1, 0x011e3, 0x02893, 0x0139e, 0x01ade, 0x0132e, 0x0245e);
+		process6(&custom_saved.loose_floor_delay, 1, 0x9536, 0xABE6, -1, -1, -1, -1);
 
-		// guard skills
-		process(&custom_saved.strikeprob   , 2*NUM_GUARD_SKILLS, {-1, 0x1D3C2, -1, 0x1D2B4, -1, 0x19C5E});
-		process(&custom_saved.restrikeprob , 2*NUM_GUARD_SKILLS, {-1, 0x1D3DA, -1, 0x1D2CC, -1, 0x19C76});
-		process(&custom_saved.blockprob    , 2*NUM_GUARD_SKILLS, {-1, 0x1D3F2, -1, 0x1D2E4, -1, 0x19C8E});
-		process(&custom_saved.impblockprob , 2*NUM_GUARD_SKILLS, {-1, 0x1D40A, -1, 0x1D2FC, -1, 0x19CA6});
-		process(&custom_saved.advprob      , 2*NUM_GUARD_SKILLS, {-1, 0x1D422, -1, 0x1D314, -1, 0x19CBE});
-		process(&custom_saved.refractimer  , 2*NUM_GUARD_SKILLS, {-1, 0x1D43A, -1, 0x1D32C, -1, 0x19CD6});
-		process(&custom_saved.extrastrength, 2*NUM_GUARD_SKILLS, {-1, 0x1D452, -1, 0x1D344, -1, 0x19CEE});
+		process6(&custom_saved.strikeprob   , 2*NUM_GUARD_SKILLS, -1, 0x1D3C2, -1, 0x1D2B4, -1, 0x19C5E);
+		process6(&custom_saved.restrikeprob , 2*NUM_GUARD_SKILLS, -1, 0x1D3DA, -1, 0x1D2CC, -1, 0x19C76);
+		process6(&custom_saved.blockprob    , 2*NUM_GUARD_SKILLS, -1, 0x1D3F2, -1, 0x1D2E4, -1, 0x19C8E);
+		process6(&custom_saved.impblockprob , 2*NUM_GUARD_SKILLS, -1, 0x1D40A, -1, 0x1D2FC, -1, 0x19CA6);
+		process6(&custom_saved.advprob      , 2*NUM_GUARD_SKILLS, -1, 0x1D422, -1, 0x1D314, -1, 0x19CBE);
+		process6(&custom_saved.refractimer  , 2*NUM_GUARD_SKILLS, -1, 0x1D43A, -1, 0x1D32C, -1, 0x19CD6);
+		process6(&custom_saved.extrastrength, 2*NUM_GUARD_SKILLS, -1, 0x1D452, -1, 0x1D344, -1, 0x19CEE);
 
-		// shadow's starting positions
-		process(&custom_saved.init_shad_6    , 8, {0x1B8B8, 0x1D47A, 0x1C6D5, 0x1D36C, 0x18AA7, 0x19D16});
-		process(&custom_saved.init_shad_5    , 8, {0x1B8C0, 0x1D482, 0x1C6DD, 0x1D374, 0x18AAF, 0x19D1E});
-		process(&custom_saved.init_shad_12   , 8, {     -1, 0x1D48A,      -1, 0x1D37C,      -1, 0x19D26}); // in the packed versions, the five zero bytes at the end are compressed
-		// automatic moves
-		process(&custom_saved.shad_drink_move,  8*4, {     -1, 0x1D492,      -1, 0x1D384,      -1, 0x19D2E}); // in the packed versions, the four zero bytes at the start are compressed
-		process(&custom_saved.demo_moves     , 25*4, {0x1B8EE, 0x1D4B2, 0x1C70B, 0x1D3A4, 0x18ADD, 0x19D4E});
+		process6(&custom_saved.init_shad_6    , 8, 0x1B8B8, 0x1D47A, 0x1C6D5, 0x1D36C, 0x18AA7, 0x19D16);
+		process6(&custom_saved.init_shad_5    , 8, 0x1B8C0, 0x1D482, 0x1C6DD, 0x1D374, 0x18AAF, 0x19D1E);
+		process6(&custom_saved.init_shad_12   , 8,      -1, 0x1D48A,      -1, 0x1D37C,      -1, 0x19D26);
+		process6(&custom_saved.shad_drink_move, 8*4,      -1, 0x1D492,      -1, 0x1D384,      -1, 0x19D2E);
+		process6(&custom_saved.demo_moves     , 25*4, 0x1B8EE, 0x1D4B2, 0x1C70B, 0x1D3A4, 0x18ADD, 0x19D4E);
 
-		// speeds
-		process(&custom_saved.base_speed   , 1, { 0x4F01, 0x65B1, 0x5389, 0x5AC9, 0x4E45, 0x5F75 });
-		process(&custom_saved.fight_speed  , 1, { 0x4EF9, 0x65A9, 0x5381, 0x5AC1, 0x4E3D, 0x5F6D });
-		process(&custom_saved.chomper_speed, 1, { 0x8BBD, 0xA26D, 0x906D, 0x97AD, 0x8B29, 0x9C59 });
+		process6(&custom_saved.base_speed   , 1,  0x4F01, 0x65B1, 0x5389, 0x5AC9, 0x4E45, 0x5F75 );
+		process6(&custom_saved.fight_speed  , 1,  0x4EF9, 0x65A9, 0x5381, 0x5AC1, 0x4E3D, 0x5F6D );
+		process6(&custom_saved.chomper_speed, 1,  0x8BBD, 0xA26D, 0x906D, 0x97AD, 0x8B29, 0x9C59 );
 
-		// Skip the mouse in the ending scene. Used in Christmas of Persia.
-		// Details: https://forum.princed.org/viewtopic.php?p=34897#p34897
-		process(&temp_bytes                , 2, { 0x2B8C, 0x423C, 0x2FE4, 0x3724, 0x2B28, 0x3C58 });
+		process6(&temp_bytes                , 2,  0x2B8C, 0x423C, 0x2FE4, 0x3724, 0x2B28, 0x3C58 );
 		custom_saved.no_mouse_in_ending = temp_bytes[0] == 0xEB && temp_bytes[1] == 0x27;
 
-		// The order of offsets is: dos_10_packed, dos_10_unpacked, dos_13_packed, dos_13_unpacked, dos_14_packed, dos_14_unpacked
-
-#undef process
+#undef process6
 		free(exe_memory);
 	}
 
@@ -781,27 +766,22 @@ void load_dos_exe_modifications(const char* folder_name) {
 
 
 void load_mod_options() {
-	// load mod-specific INI configuration
 	if (use_custom_levelset) {
-		// find the folder containing the mod's files
 		char folder_name[POP_MAX_PATH];
-		snprintf_check(folder_name, sizeof(folder_name), "%s/%s", mods_folder, levelset_name);
-		const char* located_folder_name = locate_file(folder_name);
-		//printf("located_folder_name = %s\n", located_folder_name);
-		bool ok = false;
+		const char* located_folder_name;
+		int ok = 0;
 		struct stat info;
+
+		snprintf_check(folder_name, sizeof(folder_name), "%s/%s", mods_folder, levelset_name);
+		located_folder_name = locate_file(folder_name);
 		if (stat(located_folder_name, &info) == 0) {
 			if (S_ISDIR(info.st_mode)) {
-				// It's a directory
-				ok = true;
-				snprintf_check(mod_data_path, sizeof(mod_data_path), "%s", located_folder_name);
-				// Try to load PRINCE.EXE (DOS)
-				load_dos_exe_modifications(located_folder_name);
-				// Try to load mod.ini
 				char mod_ini_filename[POP_MAX_PATH];
+				ok = 1;
+				snprintf_check(mod_data_path, sizeof(mod_data_path), "%s", located_folder_name);
+				load_dos_exe_modifications(located_folder_name);
 				snprintf_check(mod_ini_filename, sizeof(mod_ini_filename), "%s/%s", located_folder_name, "mod.ini");
 				if (file_exists(mod_ini_filename)) {
-					// Nearly all mods would want to use custom options, so always allow them.
 					use_custom_options = 1;
 					ini_load(mod_ini_filename, mod_ini_callback);
 				}
@@ -809,8 +789,8 @@ void load_mod_options() {
 				printf("Could not load mod '%s' - not a directory\n", levelset_name);
 			}
 		} else {
-			printf("Mod '%s' not found\n", levelset_name);
 			char message[256];
+			printf("Mod '%s' not found\n", levelset_name);
 			snprintf_check(message, sizeof(message), "Cannot find the mod '%s' in the mods folder.", levelset_name);
 			show_dialog(message);
 #ifdef USE_REPLAY
@@ -832,7 +812,6 @@ int process_rw_write(SDL_RWops* rw, void* data, size_t data_size) {
 
 int process_rw_read(SDL_RWops* rw, void* data, size_t data_size) {
 	return (int)SDL_RWread(rw, data, data_size, 1);
-	// if this returns 0, most likely the end of the stream has been reached
 }
 
 

@@ -201,14 +201,24 @@ static const Bit8u ch_slot[18] = {
 typedef Bit16s(*envelope_sinfunc)(Bit16u phase, Bit16u envelope);
 typedef void(*envelope_genfunc)(opl3_slot *slott);
 
+#pragma optimize("", off)
 static Bit16s OPL3_EnvelopeCalcExp(Bit32u level)
 {
+    Bit32u index;
+    Bit32u result;
+    Bit32u shift;
     if (level > 0x1fff)
     {
         level = 0x1fff;
     }
-    return ((exprom[(level & 0xff) ^ 0xff] | 0x400) << 1) >> (level >> 8);
+    index = (level & 0xff) ^ 0xff;
+    result = exprom[index] | 0x400;
+    result = result << 1;
+    shift = level >> 8;
+    result = result >> shift;
+    return (Bit16s)result;
 }
+#pragma optimize("", on)
 
 static Bit16s OPL3_EnvelopeCalcSin0(Bit16u phase, Bit16u envelope)
 {

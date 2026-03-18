@@ -35,7 +35,15 @@ word need_redraw_because_flipped;
 void fix_sound_priorities(void);
 
 // seg000:0000
+extern void debug_log(const char* msg);
+
 void pop_main() {
+	const char* temp;
+	char sprintf_temp[100];
+	int i;
+
+	debug_log("pop_main() entered");
+
 	if (check_param("--version") || check_param("-v")) {
 		printf ("SDLPoP v%s\n", SDLPOP_VERSION);
 		exit(0);
@@ -46,7 +54,7 @@ void pop_main() {
 		exit(0);
 	}
 
-	const char* temp = check_param("seed=");
+	temp = check_param("seed=");
 	if (temp != NULL) {
 		random_seed = atoi(temp+5);
 		seed_was_init = 1;
@@ -61,7 +69,9 @@ void pop_main() {
 	fix_sound_priorities();
 #endif
 
+	debug_log("loading global options");
 	load_global_options();
+	debug_log("check_mod_param");
 	check_mod_param();
 #ifdef USE_MENU
 	load_ingame_settings();
@@ -85,12 +95,16 @@ void pop_main() {
 	}
 #endif
 
-	// Initialize everything before load_mod_options() so it can show an error dialog if needed.
+	debug_log("parse_grmode");
 	/*video_mode =*/ parse_grmode();
+	debug_log("rect_sthg");
 	current_target_surface = rect_sthg(onscreen_surface_, &screen_rect);
+	debug_log("set_hc_pal");
 	set_hc_pal();
+	debug_log("init_copyprot_dialog");
 	init_copyprot_dialog();
 
+	debug_log("load_mod_options");
 	load_mod_options();
 
 	// CusPop option
@@ -100,12 +114,14 @@ void pop_main() {
 
 	apply_seqtbl_patches();
 
-	char sprintf_temp[100];
-
+	debug_log("init_timer");
 	init_timer(BASE_FPS);
+	debug_log("parse_cmdline_sound");
 	parse_cmdline_sound();
 
+	debug_log("show_loading");
 	show_loading();
+	debug_log("set_joy_mode");
 	set_joy_mode();
 	cheats_enabled = check_param("megahit") != NULL;
 #ifdef USE_DEBUG_CHEATS
@@ -119,15 +135,16 @@ void pop_main() {
 	init_record_replay();
 #endif
 
-	// I moved this after init_copyprot_dialog(), so open_dat() can show an error dialog if needed.
+	debug_log("open_dat PRINCE.DAT");
 	dathandle = open_dat("PRINCE.DAT", 'G');
+	debug_log(dathandle ? "PRINCE.DAT opened OK" : "PRINCE.DAT FAILED");
 
 	if (cheats_enabled
 		#ifdef USE_REPLAY
 		|| recording
 		#endif
 	) {
-		for (int i = 15; i >= 0; --i) {
+		for (i = 15; i >= 0; --i) {
 			snprintf(sprintf_temp, sizeof(sprintf_temp), "%d", i);
 			if (check_param(sprintf_temp)) {
 				start_level = i;
@@ -193,7 +210,9 @@ void start_game() {
 	word which_entry;
 	word entry_used[40];
 	byte letts_used[26];
+	word pos;
 #endif
+	int level_number;
 	// Prevent filling of stack.
 	// start_game is called from many places to restart the game, for example:
 	// process_key, play_frame, draw_game_frame, play_level, control_kid, end_sequence, expired
@@ -212,7 +231,7 @@ void start_game() {
 	copyprot_plac = prandom(13);
 	memset(&entry_used, 0, sizeof(entry_used));
 	memset(&letts_used, 0, sizeof(letts_used));
-	for (word pos = 0; pos < 14; ++pos) {
+	for (pos = 0; pos < 14; ++pos) {
 		do {
 			if (pos == copyprot_plac) {
 				which_entry = copyprot_idx = prandom(39);
@@ -226,7 +245,7 @@ void start_game() {
 	}
 #endif
 	if (custom->skip_title) { // CusPop option: skip the title sequence (level loads instantly)
-		int level_number = (start_level >= 0) ? start_level : custom->first_level;
+		level_number = (start_level >= 0) ? start_level : custom->first_level;
 		init_game(level_number);
 		return;
 	}
@@ -436,6 +455,8 @@ int quick_load(void) {
 	int ok = 0;
 	char custom_quick_path[POP_MAX_PATH];
 	const char* path = get_quick_path(custom_quick_path, sizeof(custom_quick_path));
+	short old_rem_min;
+	word old_rem_tick;
 	quick_fp = fopen(path, "rb");
 	if (quick_fp != NULL) {
 		// check quicksave version is compatible
@@ -451,8 +472,8 @@ int quick_load(void) {
 		update_screen();
 		delay_ticks(5); // briefly display a black screen as a visual cue
 
-		short old_rem_min = rem_min;
-		word old_rem_tick = rem_tick;
+		old_rem_min = rem_min;
+		old_rem_tick = rem_tick;
 
 		ok = quick_process(process_load);
 		fclose(quick_fp);
@@ -467,7 +488,8 @@ int quick_load(void) {
 			// don't apply the penalty after time has already stopped!
 			(current_level < /*13*/ custom->victory_stops_time_level || (current_level == /*13*/ custom->victory_stops_time_level && leveldoor_open < 2))
 		) {
-			int ticks_elapsed = 720 * (rem_min - old_rem_min) + (rem_tick - old_rem_tick);
+			int ticks_elapsed;
+			ticks_elapsed = 720 * (rem_min - old_rem_min) + (rem_tick - old_rem_tick);
 			// don't restore time at all if the elapsed time is between 0 and 1 minutes
 			if (ticks_elapsed > 0 && ticks_elapsed < 720) {
 				rem_min = old_rem_min;
@@ -684,10 +706,11 @@ int process_key() {
 		case SDL_SCANCODE_L | WITH_SHIFT: // Shift+L
 			if (current_level < custom->shift_L_allowed_until_level /* 4 */ || cheats_enabled) {
 				// if Shift is not released within the delay, the cutscene is skipped
-				Uint32 delay = 250;
+				Uint32 delay;
+				SDL_TimerID timer;
+				delay = 250;
 				key_states[SDL_SCANCODE_LSHIFT] = 0;
 				key_states[SDL_SCANCODE_RSHIFT] = 0;
-				SDL_TimerID timer;
 				timer = SDL_AddTimer(delay, temp_shift_release_callback, NULL);
 				if (timer == 0) {
 					sdlperror("process_key: SDL_AddTimer");
@@ -994,7 +1017,9 @@ void draw_game_frame() {
 
 // seg000:0B12
 void anim_tile_modif() {
-	for (word tilepos = 0; tilepos < 30; ++tilepos) {
+	word tilepos;
+	int row;
+	for (tilepos = 0; tilepos < 30; ++tilepos) {
 		switch (get_curr_tile(tilepos)) {
 			case tiles_10_potion:
 				start_anim_potion(drawn_room, tilepos);
@@ -1010,7 +1035,7 @@ void anim_tile_modif() {
 	}
 
 	// Animate torches in the rightmost column of the left-side room as well, because they are visible in the current room.
-	for (int row = 0; row <= 2; row++) {
+	for (row = 0; row <= 2; row++) {
 		switch (get_tile(room_L, 9, row)) {
 			case tiles_19_torch:
 			case tiles_30_torch_with_debris:
@@ -1024,9 +1049,9 @@ void anim_tile_modif() {
 void load_sounds(int first,int last) {
 	dat_type* ibm_dat = NULL;
 	dat_type* digi1_dat = NULL;
-//	dat_type* digi2_dat = NULL;
 	dat_type* digi3_dat = NULL;
 	dat_type* midi_dat = NULL;
+	short current;
 	ibm_dat = open_dat("IBM_SND1.DAT", 0);
 	if (sound_flags & sfDigi) {
 		digi1_dat = open_dat("DIGISND1.DAT", 0);
@@ -1039,31 +1064,26 @@ void load_sounds(int first,int last) {
 
 	load_sound_names();
 
-	for (short current = first; current <= last; ++current) {
+	for (current = first; current <= last; ++current) {
 		if (sound_pointers[current] != NULL) continue;
 		/*if (demo_mode) {
 			sound_pointers[current] = decompress_sound((sound_buffer_type*) load_from_opendats_alloc(current + 10000));
 		} else*/ {
-			//sound_pointers[current] = (sound_buffer_type*) load_from_opendats_alloc(current + 10000, "bin", NULL, NULL);
-			//printf("overwriting sound_pointers[%d] = %p\n", current, sound_pointers[current]);
-
-
 			sound_pointers[current] = load_sound(current);
 		}
 	}
 	if (midi_dat) close_dat(midi_dat);
 	if (digi1_dat) close_dat(digi1_dat);
-//	if (digi2_dat) close_dat(digi2_dat);
 	if (digi3_dat) close_dat(digi3_dat);
 	close_dat(ibm_dat);
 }
 
 // seg000:0C5E
 void load_opt_sounds(int first,int last) {
-	// stub
 	dat_type* ibm_dat = NULL;
 	dat_type* digi_dat = NULL;
 	dat_type* midi_dat = NULL;
+	short current;
 	ibm_dat = open_dat("IBM_SND2.DAT", 0);
 	if (sound_flags & sfDigi) {
 		digi_dat = open_dat("DIGISND2.DAT", 0);
@@ -1071,14 +1091,11 @@ void load_opt_sounds(int first,int last) {
 	if (sound_flags & sfMidi) {
 		midi_dat = open_dat("MIDISND2.DAT", 0);
 	}
-	for (short current = first; current <= last; ++current) {
-		//We don't free sounds, so load only once.
+	for (current = first; current <= last; ++current) {
 		if (sound_pointers[current] != NULL) continue;
 		/*if (demo_mode) {
 			sound_pointers[current] = decompress_sound((sound_buffer_type*) load_from_opendats_alloc(current + 10000));
 		} else*/ {
-			//sound_pointers[current] = (sound_buffer_type*) load_from_opendats_alloc(current + 10000, "bin", NULL, NULL);
-			//printf("overwriting sound_pointers[%d] = %p\n", current, sound_pointers[current]);
 			sound_pointers[current] = load_sound(current);
 		}
 	}
@@ -1098,6 +1115,9 @@ void load_lev_spr(int level) {
 	dat_type* dathandle;
 	short guardtype;
 	char filename[20];
+	int level_color;
+	byte* env_pal;
+	byte* wall_pal;
 	dathandle = NULL;
 	current_level = next_level = level;
 	draw_rect(&screen_rect, color_0_black);
@@ -1123,10 +1143,10 @@ void load_lev_spr(int level) {
 
 	// Level colors (1.3)
 	if (graphics_mode == gmMcgaVga && level_var_palettes != NULL) {
-		int level_color = custom->tbl_level_color[current_level];
+		level_color = custom->tbl_level_color[current_level];
 		if (level_color != 0) {
-			byte* env_pal = level_var_palettes + 0x30*(level_color-1);
-			byte* wall_pal = env_pal + 0x30 * custom->tbl_level_type[current_level];
+			env_pal = level_var_palettes + 0x30*(level_color-1);
+			wall_pal = env_pal + 0x30 * custom->tbl_level_type[current_level];
 			set_pal_arr(0x50, 0x10, (rgb_type*)env_pal);
 			set_pal_arr(0x60, 0x10, (rgb_type*)wall_pal);
 			set_chtab_palette(chtab_addrs[id_chtab_6_environment], env_pal, 0x10);
@@ -1159,28 +1179,23 @@ void load_level() {
 }
 
 void reset_level_unused_fields(bool loading_clean_level) {
-	// Entirely unused fields in the level format: reset to zero for now
-	// They can be repurposed to add new stuff to the level format in the future
-	// WIP: https://www.popot.org/documentation/documents/multiplayer.txt
+	int i;
 	memset(level.roomxs, 0, sizeof(level.roomxs));
 	memset(level.roomys, 0, sizeof(level.roomys));
 	memset(level.fill_1, 0, sizeof(level.fill_1));
 	memset(level.fill_2, 0, sizeof(level.fill_2));
 	memset(level.fill_3, 0, sizeof(level.fill_3));
 
-	// level.used_rooms is 25 on some levels. Limit it to the actual number of rooms.
 	if (level.used_rooms > ROOMCOUNT) level.used_rooms = ROOMCOUNT;
 
-	// For these fields, only use the bits that are actually used, and set the rest to zero.
-	// Good for repurposing the unused bits in the future.
-	for (int i = 0; i < level.used_rooms; ++i) {
+	for (i = 0; i < level.used_rooms; ++i) {
 		//level.guards_dir[i]   &= 0x01; // 1 bit in use
 		level.guards_skill[i] &= 0x0F; // 4 bits in use
 	}
 
 	// In savestates, additional information may be stored (e.g. remembered guard hp) - should not reset this then!
 	if (loading_clean_level) {
-		for (int i = 0; i < level.used_rooms; ++i) {
+		for (i = 0; i < level.used_rooms; ++i) {
 			level.guards_color[i] &= 0x0F; // 4 bits in use (other 4 bits repurposed as remembered guard hp)
 		}
 	}
@@ -1397,29 +1412,29 @@ void read_joyst_control() {
 
 // seg000:10EA
 void draw_kid_hp(short curr_hp,short max_hp) {
-	for (short drawn_hp_index = curr_hp; drawn_hp_index < max_hp; ++drawn_hp_index) {
-		// empty HP
+	short drawn_hp_index;
+	for (drawn_hp_index = curr_hp; drawn_hp_index < max_hp; ++drawn_hp_index) {
 		method_6_blit_img_to_scr(get_image(id_chtab_2_kid, 217), drawn_hp_index * 7, 194, blitters_0_no_transp);
 	}
-	for (short drawn_hp_index = 0; drawn_hp_index < curr_hp; ++drawn_hp_index) {
-		// full HP
+	for (drawn_hp_index = 0; drawn_hp_index < curr_hp; ++drawn_hp_index) {
 		method_6_blit_img_to_scr(get_image(id_chtab_2_kid, 216), drawn_hp_index * 7, 194, blitters_0_no_transp);
 	}
 }
 
 // seg000:1159
 void draw_guard_hp(short curr_hp,short max_hp) {
+	short guard_charid;
+	short drawn_hp_index;
 	if (chtab_addrs[id_chtab_5_guard] == NULL) return;
-	short guard_charid = Guard.charid;
+	guard_charid = Guard.charid;
 	if (guard_charid != charid_4_skeleton &&
 		guard_charid != charid_24_mouse &&
-		// shadow has HP only on level 12
 		(guard_charid != charid_1_shadow || current_level == 12)
 	) {
-		for (short drawn_hp_index = curr_hp; drawn_hp_index < max_hp; ++drawn_hp_index) {
+		for (drawn_hp_index = curr_hp; drawn_hp_index < max_hp; ++drawn_hp_index) {
 			method_6_blit_img_to_scr(chtab_addrs[id_chtab_5_guard]->images[0], 314 - drawn_hp_index * 7, 194, blitters_9_black);
 		}
-		for (short drawn_hp_index = 0; drawn_hp_index < curr_hp; ++drawn_hp_index) {
+		for (drawn_hp_index = 0; drawn_hp_index < curr_hp; ++drawn_hp_index) {
 			method_6_blit_img_to_scr(chtab_addrs[id_chtab_5_guard]->images[0], 314 - drawn_hp_index * 7, 194, blitters_0_no_transp);
 		}
 	}
@@ -1443,14 +1458,15 @@ void set_health_life() {
 
 // seg000:120B
 void draw_hp() {
+	int blink_state;
 	if (hitp_delta) {
 		draw_kid_hp(hitp_curr, hitp_max);
 	}
 
 #ifdef FIX_ONE_HP_STOPS_BLINKING
-	bool blink_state = fixes->fix_one_hp_stops_blinking ? global_blink_state : rem_tick & 1;
+	blink_state = fixes->fix_one_hp_stops_blinking ? global_blink_state : rem_tick & 1;
 #else
-	bool blink_state = rem_tick & 1;
+	blink_state = rem_tick & 1;
 #endif
 
 	if (hitp_curr == 1 && current_level != 15) {
@@ -1651,17 +1667,18 @@ void check_sword_vs_sword() {
 
 // seg000:136A
 void load_chtab_from_file(int chtab_id,int resource,const char* filename,int palette_bits) {
-	//printf("Loading chtab %d, id %d from %s\n",chtab_id,resource,filename);
+	dat_type* dathandle;
 	if (chtab_addrs[chtab_id] != NULL) return;
-	dat_type* dathandle = open_dat(filename, 'G');
+	dathandle = open_dat(filename, 'G');
 	chtab_addrs[chtab_id] = load_sprites_from_file(resource, palette_bits, 1);
 	close_dat(dathandle);
 }
 
 // seg000:13BA
 void free_all_chtabs_from(int first) {
+	word chtab_id;
 	free_peels();
-	for (word chtab_id = first; chtab_id < 10; ++chtab_id) {
+	for (chtab_id = first; chtab_id < 10; ++chtab_id) {
 		if (chtab_addrs[chtab_id]) {
 			free_chtab(chtab_addrs[chtab_id]);
 			chtab_addrs[chtab_id] = NULL;
@@ -1671,8 +1688,10 @@ void free_all_chtabs_from(int first) {
 
 // seg009:12EF
 void load_one_optgraf(chtab_type* chtab_ptr,dat_pal_type* pal_ptr,int base_id,int min_index,int max_index) {
-	for (short index = min_index; index <= max_index; ++index) {
-		image_type* image = load_image(base_id + index + 1, pal_ptr);
+	short index;
+	image_type* image;
+	for (index = min_index; index <= max_index; ++index) {
+		image = load_image(base_id + index + 1, pal_ptr);
 		if (image != NULL) chtab_ptr->images[index] = image;
 	}
 }
@@ -1681,10 +1700,10 @@ byte optgraf_min[] = {0x01, 0x1E, 0x4B, 0x4E, 0x56, 0x65, 0x7F, 0x0A};
 byte optgraf_max[] = {0x09, 0x1F, 0x4D, 0x53, 0x5B, 0x7B, 0x8F, 0x0D};
 // seg000:13FC
 void load_more_opt_graf(const char* filename) {
-	// stub
 	dat_shpl_type area;
 	dat_type* dathandle = NULL;
-	for (short graf_index = 0; graf_index < 8; ++graf_index) {
+	short graf_index;
+	for (graf_index = 0; graf_index < 8; ++graf_index) {
 		/*if (...) */ {
 			if (dathandle == NULL) {
 				dathandle = open_dat(filename, 'G');
@@ -1701,11 +1720,11 @@ void load_more_opt_graf(const char* filename) {
 
 // seg000:148D
 int do_paused() {
+	word key;
+	int i;
 #ifdef USE_REPLAY
 	if (replaying && skipping_replay) return 0;
 #endif
-
-	word key;
 	key = 0;
 	next_room = 0;
 	control_shift = CONTROL_RELEASED;
@@ -1746,13 +1765,13 @@ int do_paused() {
 	}
 
 	// As we processed input for current gameplay tick change all input to reflect their current status
-	for (int i = 0; i < SDL_NUM_SCANCODES; i++) {
+	for (i = 0; i < SDL_NUM_SCANCODES; i++) {
 		key_states[i] &= ~KEYSTATE_HELD_NEW;
 	}
-	for (int i = 0; i < JOYINPUT_NUM; i++) {
+	for (i = 0; i < JOYINPUT_NUM; i++) {
 		joy_button_states[i] &= ~KEYSTATE_HELD_NEW;
 	}
-	for (int i = 0; i < JOY_AXIS_NUM; i++) {
+	for (i = 0; i < JOY_AXIS_NUM; i++) {
 		joy_axis_max[i] = joy_axis[i];
 	}
 
@@ -1836,15 +1855,15 @@ int showmessage_any_key(char *text,int arg_4,void *arg_0) {
 
 void redefine_key(const char* name, int* key) {
 	char message[256];
+	font_type* saved_font;
+	int new_key;
 	snprintf(message, sizeof(message), "Redefining keys:\nPress key for \"%s\".\nOr press Esc to cancel.", name);
 
-	// Use the regular big font for the dialog instead of the small menu font.
-	font_type* saved_font = textstate.ptr_font;
+	saved_font = textstate.ptr_font;
 	textstate.ptr_font = &hc_font;
 
-	int new_key = showmessage_any_key(message, 1, &key_test_quit);
+	new_key = showmessage_any_key(message, 1, &key_test_quit);
 
-	// Switch back to the menu font.
 	textstate.ptr_font = saved_font;
 
 	if (new_key == SDL_SCANCODE_ESCAPE) return;
@@ -1910,19 +1929,23 @@ int parse_grmode() {
 // seg000:172C
 void gen_palace_wall_colors() {
 	dword old_randseed = random_seed;
+	short row;
+	short subrow;
+	short column;
+	word color_base;
+	word prev_color;
+	word color;
 	random_seed = drawn_room;
-	prandom(1); // discard
-	for (short row = 0; row < 3; row++) {
-		for (short subrow = 0; subrow < 4; subrow++) {
-			word color_base;
+	prandom(1);
+	for (row = 0; row < 3; row++) {
+		for (subrow = 0; subrow < 4; subrow++) {
 			if (subrow % 2) {
-				color_base = 0x61; // 0x61..0x64 in subrow 1 and 3
+				color_base = 0x61;
 			} else {
-				color_base = 0x66; // 0x66..0x69 in subrow 0 and 2
+				color_base = 0x66;
 			}
-			word prev_color = -1;
-			for (short column = 0; column <= 10; ++column) {
-				word color;
+			prev_color = -1;
+			for (column = 0; column <= 10; ++column) {
 				do {
 					color = color_base + prandom(3);
 				} while (color == prev_color);
@@ -2043,21 +2066,23 @@ Uint64 last_transition_counter;
 // seg000:1BB3
 void transition_ltr() {
 	rect_type rect;
+	int transition_fps = 120;
+	Uint64 counters_per_frame;
+	int overshoot = 0;
+	short position;
+#ifdef USE_FAST_FORWARD
+	extern int audio_speed;
+#endif
 	rect.top = 0;
 	rect.bottom = 200;
 	rect.left = 0;
 	rect.right = 2;
-	// Estimated transition fps based on the speed of the transition on an Apple IIe.
-	// See: https://www.youtube.com/watch?v=7m7j2VuWhQ0
-	int transition_fps = 120;
 #ifdef USE_FAST_FORWARD
-	extern int audio_speed;
 	transition_fps *= audio_speed;
 #endif
-	Uint64 counters_per_frame = perf_frequency / transition_fps;
+	counters_per_frame = perf_frequency / transition_fps;
 	last_transition_counter = SDL_GetPerformanceCounter();
-	int overshoot = 0;
-	for (short position = 0; position < 320; position += 2) {
+	for (position = 0; position < 320; position += 2) {
 		method_1_blit_rect(onscreen_surface_, offscreen_surface, &rect, &rect, 0);
 		rect.left += 2;
 		rect.right += 2;
@@ -2069,8 +2094,10 @@ void transition_ltr() {
 		do_paused();
 		// Add an appropriate delay until the next frame, so that the animation isn't instantaneous on fast CPUs.
 		for (;;) {
-			Uint64 current_counter = SDL_GetPerformanceCounter();
-			int frametimes_elapsed = (int)((current_counter / counters_per_frame) - (last_transition_counter / counters_per_frame));
+			Uint64 current_counter;
+			int frametimes_elapsed;
+			current_counter = SDL_GetPerformanceCounter();
+			frametimes_elapsed = (int)((current_counter / counters_per_frame) - (last_transition_counter / counters_per_frame));
 			if (frametimes_elapsed > 0) {
 				overshoot = frametimes_elapsed - 1;
 				last_transition_counter = current_counter;
@@ -2099,13 +2126,16 @@ void release_title_images() {
 void draw_full_image(enum full_image_id id) {
 	image_type* decoded_image;
 	image_type* mask = NULL;
+	int blit;
+	int xpos;
+	int ypos;
 
 	if (id >= MAX_FULL_IMAGES) return;
 	if (NULL == *full_image[id].chtab) return;
 	decoded_image = (*full_image[id].chtab)->images[full_image[id].id];
-	int blit = full_image[id].blitter;
-	int xpos = full_image[id].xpos;
-	int ypos = full_image[id].ypos;
+	blit = full_image[id].blitter;
+	xpos = full_image[id].xpos;
+	ypos = full_image[id].ypos;
 
 	switch (blit) {
 	case blitters_white:
@@ -2210,14 +2240,14 @@ short load_game() {
 
 // seg000:1F02
 void clear_screen_and_sounds() {
+	short index;
 	stop_sounds();
 	current_target_surface = rect_sthg(onscreen_surface_, &screen_rect);
 
 	is_cutscene = 0;
-	is_ending_sequence = false; // added
+	is_ending_sequence = false;
 	peels_count = 0;
-	// should these be freed?
-	for (short index = 2; index < 10; ++index) {
+	for (index = 2; index < 10; ++index) {
 		if (chtab_addrs[index]) {
 			// Original code does not free these?
 			free_chtab(chtab_addrs[index]);
@@ -2259,7 +2289,8 @@ void free_optional_sounds() {
 }
 
 void free_all_sounds() {
-	for (int i = 0; i < 58; ++i) {
+	int i;
+	for (i = 0; i < 58; ++i) {
 		free_sound(sound_pointers[i]);
 		sound_pointers[i] = NULL;
 	}
@@ -2428,27 +2459,31 @@ const char* splash_text_2 =
 		"Press any key to continue...";
 
 void show_splash() {
+#ifdef USE_TEXT
+	int key = 0;
+	int joy_input;
+	int i;
+#endif
 	if (!enable_info_screen || start_level >= 0) return;
 	current_target_surface = onscreen_surface_;
 	draw_rect(&screen_rect, color_0_black);
 	show_text_with_color(&splash_text_1_rect, halign_center, valign_middle, splash_text_1, color_15_brightwhite);
 	show_text_with_color(&splash_text_2_rect, halign_center, valign_top, splash_text_2, color_7_lightgray);
 
-#ifdef USE_TEXT // Don't wait for a keypress if there is no text for the user to read.
-	int key = 0;
+#ifdef USE_TEXT
 	do {
 		idle();
 		key = key_test_quit();
 
-		bool joy_input = 0;
-		for (int i = 0; i < JOYINPUT_NUM; i++) {
+		joy_input = 0;
+		for (i = 0; i < JOYINPUT_NUM; i++) {
 			if (joy_button_states[i] & KEYSTATE_HELD) {
 				joy_input = 1;
 				break;
 			}
 		}
 		if (joy_input) {
-			for (int i = 0; i < JOYINPUT_NUM; i++) {
+			for (i = 0; i < JOYINPUT_NUM; i++) {
 				joy_button_states[i] = 0;
 			}
 			key_states[SDL_SCANCODE_LSHIFT] |= KEYSTATE_HELD; // close the splash screen using the gamepad

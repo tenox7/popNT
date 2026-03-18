@@ -23,8 +23,10 @@ The authors of this program may be contacted at https://forum.princed.org
 // seg007:0000
 void process_trobs() {
 	word need_delete = 0;
+	word index;
+	word new_index;
 	if (trobs_count == 0) return;
-	for (word index = 0; index < trobs_count; ++index) {
+	for (index = 0; index < trobs_count; ++index) {
 		trob = trobs[index];
 		animate_tile();
 		trobs[index].type = trob.type;
@@ -33,8 +35,7 @@ void process_trobs() {
 		}
 	}
 	if (need_delete) {
-		word new_index;
-		for (word index = new_index = 0; index < trobs_count; ++index) {
+		for (index = new_index = 0; index < trobs_count; ++index) {
 			if (trobs[index].type >= 0) {
 				trobs[new_index] = trobs[index];
 				new_index++;
@@ -109,8 +110,9 @@ void set_redraw_anim_curr() {
 
 // seg007:019A
 void redraw_at_trob() {
+	word tilepos;
 	redraw_height = 63;
-	word tilepos = get_trob_pos_in_drawn_room();
+	tilepos = get_trob_pos_in_drawn_room();
 	set_redraw_full(tilepos, 1);
 	set_wipe(tilepos, 1);
 }
@@ -349,6 +351,7 @@ Possible values of anim_type:
 3,4,5,6,7,8: fast closing with speeds 20,40,60,80,100,120 /4 pixel/frame
 */
 	sbyte anim_type = trob.type;
+	short new_mod;
 	if (anim_type >= 0) {
 		if (anim_type >= 3) {
 			// closing fast
@@ -356,7 +359,7 @@ Possible values of anim_type:
 				++anim_type;
 				trob.type = anim_type;
 			}
-			short new_mod = curr_modifier - gate_close_speeds[anim_type];
+			new_mod = curr_modifier - gate_close_speeds[anim_type];
 			curr_modifier = new_mod;
 			//if ((sbyte)curr_modifier < 0) {
 			if (new_mod < 0) {
@@ -675,6 +678,7 @@ void do_trigger_list(short index,short button_type) {
 
 // seg007:0A5A
 void add_trob(byte room,byte tilepos,sbyte type) {
+	short found;
 	if (trobs_count >= TROBS_MAX) {
 		show_dialog("Trobs Overflow");
 		return /*0*/; // added
@@ -682,7 +686,7 @@ void add_trob(byte room,byte tilepos,sbyte type) {
 	trob.room = room;
 	trob.tilepos = tilepos;
 	trob.type = type;
-	short found = find_trob();
+	found = find_trob();
 	if (found == -1) {
 		// add new
 		if (trobs_count == TROBS_MAX) return;
@@ -696,7 +700,8 @@ void add_trob(byte room,byte tilepos,sbyte type) {
 
 // seg007:0ACA
 short find_trob() {
-	for (short index = 0; index < trobs_count; ++index) {
+	short index;
+	for (index = 0; index < trobs_count; ++index) {
 		if (trobs[index].tilepos == trob.tilepos &&
 			trobs[index].room == trob.room) return index;
 	}
@@ -747,6 +752,7 @@ short get_doorlink_room(short index) {
 
 // seg007:0C53
 void trigger_button(int playsound,int button_type,int modifier) {
+	sbyte link_timer;
 	get_curr_tile(curr_tilepos);
 	if (button_type == 0) {
 		// 0 means currently selected
@@ -756,7 +762,7 @@ void trigger_button(int playsound,int button_type,int modifier) {
 		// -1 means currently selected
 		modifier = curr_modifier;
 	}
-	sbyte link_timer = get_doorlink_timer(modifier);
+	link_timer = get_doorlink_timer(modifier);
 	// is the event jammed?
 	if (link_timer != 0x1F) {
 		set_doorlink_timer(modifier, 5);
@@ -832,6 +838,7 @@ void animate_loose() {
 			if (curr_modifier >= /*11*/ custom->loose_floor_delay) {
                 word room = trob.room;
                 word tilepos = trob.tilepos;
+                word row;
 #ifdef FIX_DROP_2_ROOMS_CLIMBING_LOOSE_TILE
                 if (fixes->fix_drop_2_rooms_climbing_loose_tile &&
                         room == level.roomlinks[Kid.room - 1].up && // the tile is in the room above
@@ -846,7 +853,7 @@ void animate_loose() {
                     curr_modifier = remove_loose(room, tilepos);
                     trob.type = -1;
                     curmob.xh = (tilepos % 10) << 2;
-                    word row = tilepos / 10;
+                    row = tilepos / 10;
                     curmob.y = y_loose_land[row + 1];
                     curmob.room = room;
                     curmob.speed = 0;
@@ -915,13 +922,16 @@ void make_loose_fall(byte modifier) {
 // seg007:0F13
 void start_chompers() {
 	short timing = 15;
+	short column;
+	short tilepos;
+	short modifier;
 	if ((byte)Char.curr_row < 3) {
 		get_room_address(Char.room);
-		for (short column = 0, tilepos = tbl_line[Char.curr_row];
+		for (column = 0, tilepos = tbl_line[Char.curr_row];
 			column < 10; ++column, ++tilepos
 		){
 			if (get_curr_tile(tilepos) == tiles_18_chomper) {
-				short modifier = curr_modifier & 0x7F;
+				modifier = curr_modifier & 0x7F;
 				if (modifier == 0 || modifier >= 6) {
 					start_anim_chomper(Char.room, tilepos, timing | (curr_modifier & 0x80));
 					timing = next_chomper_timing(timing);
@@ -952,7 +962,8 @@ void loose_make_shake() {
 
 // seg007:0FE0
 void do_knock(int room,int tile_row) {
-	for (short tile_col = 0; tile_col < 10; ++tile_col) {
+	short tile_col;
+	for (tile_col = 0; tile_col < 10; ++tile_col) {
 		if (get_tile(room, tile_col, tile_row) == tiles_11_loose) {
 			loose_make_shake();
 		}
@@ -981,14 +992,15 @@ word curmob_index;
 // seg007:1063
 void do_mobs() {
 	short n_mobs = mobs_count;
+	short new_index = 0;
+	short index;
 	for (curmob_index = 0; n_mobs > curmob_index; ++curmob_index) {
 		curmob = mobs[curmob_index];
 		move_mob();
 		check_loose_fall_on_kid();
 		mobs[curmob_index] = curmob;
 	}
-	short new_index = 0;
-	for (short index = 0; index < mobs_count; ++index) {
+	for (index = 0; index < mobs_count; ++index) {
 		if (mobs[index].speed != -1) {
 			mobs[new_index] = mobs[index];
 			new_index++;
@@ -1114,7 +1126,8 @@ void mob_down_a_row() {
 
 // seg007:13AE
 void draw_mobs() {
-	for (short index = 0; index < mobs_count; ++index) {
+	short index;
+	for (index = 0; index < mobs_count; ++index) {
 		curmob = mobs[index];
 		draw_mob();
 	}
@@ -1123,6 +1136,10 @@ void draw_mobs() {
 // seg007:13E5
 void draw_mob() {
 	short ypos = curmob.y;
+	short tile_col;
+	short tile_row;
+	short tilepos;
+	short top_row;
 	if (curmob.room == drawn_room) {
 		if (curmob.y >= 210) return;
 	} else if (curmob.room == room_B) {
@@ -1135,14 +1152,14 @@ void draw_mob() {
 	} else {
 		return;
 	}
-	short tile_col = curmob.xh >> 2;
-	short tile_row = y_to_row_mod4(ypos);
+	tile_col = curmob.xh >> 2;
+	tile_row = y_to_row_mod4(ypos);
 	obj_tilepos = get_tilepos_nominus(tile_col, tile_row);
 	++tile_col;
-	short tilepos = get_tilepos(tile_col, tile_row);
+	tilepos = get_tilepos(tile_col, tile_row);
 	set_redraw2(tilepos, 1);
 	set_redraw_fore(tilepos, 1);
-	short top_row = y_to_row_mod4(ypos - 18);
+	top_row = y_to_row_mod4(ypos - 18);
 	if (top_row != tile_row) {
 		tilepos = get_tilepos(tile_col, top_row);
 		set_redraw2(tilepos, 1);

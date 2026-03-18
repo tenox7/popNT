@@ -125,6 +125,7 @@ void load_room_links() {
 
 // seg008:0125
 void draw_room() {
+	word saved_room;
 	load_leftroom();
 	for (drawn_row = 3; drawn_row--; ) { /*2,1,0*/
 		load_rowbelow();
@@ -135,7 +136,7 @@ void draw_room() {
 			draw_tile();
 		}
 	}
-	word saved_room = drawn_room;
+	saved_room = drawn_room;
 	drawn_room = room_A;
 	load_room_links();
 	load_leftroom();
@@ -239,6 +240,8 @@ void redraw_needed_above(int column) {
 // seg008:02FE
 int get_tile_to_draw(int room, int column, int row, byte* ptr_tiletype, byte* ptr_modifier, byte tile_room0) {
 	word tilepos = tbl_line[row] + column;
+	byte tiletype;
+	byte modifier;
 	if (column == -1) {
 		*ptr_tiletype = leftroom_[row].tiletype;
 		*ptr_modifier = leftroom_[row].modifier;
@@ -250,8 +253,8 @@ int get_tile_to_draw(int room, int column, int row, byte* ptr_tiletype, byte* pt
 		*ptr_tiletype = tile_room0;
 	}
 	// Is this a pressed button?
-	byte tiletype = (*ptr_tiletype) & 0x1F;
-	byte modifier = *ptr_modifier;
+	tiletype = (*ptr_tiletype) & 0x1F;
+	modifier = *ptr_modifier;
 	if (tiletype == tiles_6_closer) {
 		if (get_doorlink_timer(modifier) > 1) {
 			*ptr_tiletype = tiles_5_stuck;
@@ -357,8 +360,9 @@ void load_curr_and_left_tile() {
 
 // seg008:041A
 void load_leftroom() {
+	word row;
 	get_room_address(room_L);
-	for (word row = 0; row < 3; ++row) {
+	for (row = 0; row < 3; ++row) {
 		// wall at left of level (drawn_tile_left_level_edge), default: tiles_20_wall
 		get_tile_to_draw(room_L, 9, row, &leftroom_[row].tiletype, &leftroom_[row].modifier, custom->drawn_tile_left_level_edge);
 	}
@@ -369,6 +373,7 @@ void load_rowbelow() {
 	word row_below;
 	word room;
 	word room_left;
+	word column;
 	if (drawn_row == 2) {
 		room = room_B;
 		room_left = room_BL;
@@ -379,7 +384,7 @@ void load_rowbelow() {
 		row_below = drawn_row + 1;
 	}
 	get_room_address(room);
-	for (word column = 1; column < 10; ++column) {
+	for (column = 1; column < 10; ++column) {
 		get_tile_to_draw(room, column - 1, row_below, &row_below_left_[column].tiletype, &row_below_left_[column].modifier, tiles_0_empty);
 	}
 	get_room_address(room_left);
@@ -440,8 +445,9 @@ void draw_tile_anim_topright() {
 		curr_tile == tiles_12_doortop)
 		&& row_below_left_[drawn_col].tiletype == tiles_4_gate
 	) {
+		word modifier;
 		add_backtable(id_chtab_6_environment, 68 /*gate top mask*/, draw_xh, 0, draw_bottom_y, blitters_40h_mono, 0);
-		word modifier = row_below_left_[drawn_col].modifier;
+		modifier = row_below_left_[drawn_col].modifier;
 		if (modifier > 188) modifier = 188;
 		add_backtable(id_chtab_6_environment, door_fram_top[(modifier>>2) % 8], draw_xh, 0, draw_bottom_y, blitters_2_or, 0);
 	}
@@ -771,11 +777,12 @@ int get_loose_frame(byte modifier) {
 
 // Get an image, with index and NULL checks.
 image_type* get_image(short chtab_id, int id) {
+	chtab_type* chtab;
 	if (chtab_id < 0 || chtab_id > COUNT(chtab_addrs)) {
 		printf("Tried to use chtab %d not in 0..%d\n", chtab_id, (int)COUNT(chtab_addrs));
 		return NULL;
 	}
-	chtab_type* chtab = chtab_addrs[chtab_id];
+	chtab = chtab_addrs[chtab_id];
 	if (chtab == NULL) {
 		printf("Tried to use null chtab %d\n", chtab_id);
 		return NULL;
@@ -789,20 +796,23 @@ image_type* get_image(short chtab_id, int id) {
 
 // seg008:10A8
 int add_backtable(short chtab_id, int id, sbyte xh, sbyte xl, int ybottom, int blit, byte peel) {
+	word index;
+	back_table_type* backtable_item;
+	image_type* image;
 	if (id == 0) {
 		return 0;
 	}
-	word index = backtable_count;
+	index = backtable_count;
 	if (index >= 200) {
 		show_dialog("BackTable Overflow");
 		return 0; // added
 	}
-	back_table_type* backtable_item = &backtable[index];
+	backtable_item = &backtable[index];
 	backtable_item->xh = xh;
 	backtable_item->xl = xl;
 	backtable_item->chtab_id = chtab_id;
 	backtable_item->id = id - 1;
-	image_type* image = get_image(chtab_id, id - 1);
+	image = get_image(chtab_id, id - 1);
 	if (image == NULL) {
 		return 0;
 	}
@@ -817,18 +827,21 @@ int add_backtable(short chtab_id, int id, sbyte xh, sbyte xl, int ybottom, int b
 
 // seg008:1017
 int add_foretable(short chtab_id, int id, sbyte xh, sbyte xl, int ybottom, int blit, byte peel) {
+	word index;
+	back_table_type* foretable_item;
+	image_type* image;
 	if (id == 0) return 0;
-	word index = foretable_count;
+	index = foretable_count;
 	if (index >= 200) {
 		show_dialog("ForeTable Overflow");
 		return 0; // added
 	}
-	back_table_type* foretable_item = &foretable[index];
+	foretable_item = &foretable[index];
 	foretable_item->xh = xh;
 	foretable_item->xl = xl;
 	foretable_item->chtab_id = chtab_id;
 	foretable_item->id = id - 1;
-	image_type* image = get_image(chtab_id, id - 1);
+	image = get_image(chtab_id, id - 1);
 	if (image == NULL) {
 		return 0;
 	}
@@ -843,20 +856,23 @@ int add_foretable(short chtab_id, int id, sbyte xh, sbyte xl, int ybottom, int b
 
 // seg008:113A
 int add_midtable(short chtab_id, int id, sbyte xh, sbyte xl, int ybottom, int blit, byte peel) {
+	word index;
+	midtable_type* midtable_item;
+	image_type* image;
 	if (id == 0) {
 		return 0;
 	}
-	word index = midtable_count;
+	index = midtable_count;
 	if (index >= 50) {
 		show_dialog("MidTable Overflow");
 		return 0; // added
 	}
-	midtable_type* midtable_item = &midtable[index];
+	midtable_item = &midtable[index];
 	midtable_item->xh = xh;
 	midtable_item->xl = xl;
 	midtable_item->chtab_id = chtab_id;
 	midtable_item->id = id - 1;
-	image_type* image = get_image(chtab_id, id - 1);
+	image = get_image(chtab_id, id - 1);
 	if (image == NULL) {
 		return 0;
 	}
@@ -895,11 +911,12 @@ void add_peel(int left,int right,int top,int height) {
 // seg008:1254
 void add_wipetable(sbyte layer,short left,short bottom,sbyte height,short width,sbyte color) {
 	word index = wipetable_count;
+	wipetable_type* wipetable_item;
 	if (index >= 300) {
 		show_dialog("WipeTable Overflow");
 		return /*0*/; // added
 	}
-	wipetable_type* wipetable_item = &wipetable[index];
+	wipetable_item = &wipetable[index];
 	wipetable_item->left = left;
 	wipetable_item->bottom = bottom + 1;
 	wipetable_item->height = height;
@@ -915,7 +932,8 @@ void add_wipetable(sbyte layer,short left,short bottom,sbyte height,short width,
 // seg008:12BB
 void draw_table(int which_table) {
 	short count = table_counts[which_table];
-	for (short index = 0; index < count; ++index) {
+	short index;
+	for (index = 0; index < count; ++index) {
 		if (which_table == 3) {
 			draw_mid(index);
 		} else {
@@ -927,7 +945,8 @@ void draw_table(int which_table) {
 // seg008:12FE
 void draw_wipes(int which) {
 	word count = wipetable_count;
-	for (word index = 0; index < count; ++index) {
+	word index;
+	for (index = 0; index < count; ++index) {
 		if (which == wipetable[index].layer) {
 			draw_wipe(index);
 		}
@@ -959,9 +978,13 @@ void draw_back_fore(int which_table,int index) {
 SDL_Surface* hflip(SDL_Surface* input) {
 	int width = input->w;
 	int height = input->h;
+	int source_x, target_x;
+	SDL_Surface* output;
+	SDL_Rect srcrect;
+	SDL_Rect dstrect;
 
 	// The simplest way to create a surface with same format as input:
-	SDL_Surface* output = SDL_ConvertSurface(input, input->format, 0);
+	output = SDL_ConvertSurface(input, input->format, 0);
 	SDL_SetSurfacePalette(output, input->format->palette);
 	// The copied image will be overwritten anyway.
 	if (output == NULL) {
@@ -975,9 +998,9 @@ SDL_Surface* hflip(SDL_Surface* input) {
 	SDL_SetColorKey(output, SDL_FALSE, 0);
 	SDL_SetSurfaceAlphaMod(input, 255);
 
-	for (int source_x = 0, target_x = width-1; source_x < width; ++source_x, --target_x) {
-		SDL_Rect srcrect = {source_x, 0, 1, height};
-		SDL_Rect dstrect = {target_x, 0, 1, height};
+	for (source_x = 0, target_x = width-1; source_x < width; ++source_x, --target_x) {
+		srcrect.x = source_x; srcrect.y = 0; srcrect.w = 1; srcrect.h = height;
+		dstrect.x = target_x; dstrect.y = 0; dstrect.w = 1; dstrect.h = height;
 		if (SDL_BlitSurface(input/*32*/, &srcrect, output, &dstrect) != 0) {
 			sdlperror("hflip: SDL_BlitSurface");
 			quit(1);
@@ -1108,6 +1131,8 @@ void calc_gate_pos() {
 const byte door_fram_slice[] = {67, 59, 58, 57, 56, 55, 54, 53, 52};
 // seg008:17B7
 void draw_gate_back() {
+	short ybottom;
+	word gate_frame;
 	calc_gate_pos();
 	if (gate_bottom_y + 12 < draw_main_y) {
 		add_backtable(id_chtab_6_environment, 50 /*gate bottom with B*/, draw_xh, 0, gate_bottom_y, blitters_0_no_transp, 0);
@@ -1129,13 +1154,13 @@ void draw_gate_back() {
 		draw_tile_base();
 		add_backtable(id_chtab_6_environment, 51 /*gate bottom*/, draw_xh, 0, gate_bottom_y - 2, blitters_10h_transp, 0);
 	}
-	short ybottom = gate_bottom_y - 12;
+	ybottom = gate_bottom_y - 12;
 	if (ybottom < 192) {
 		for (; ybottom >= 0 && ybottom > 7 && ybottom - 7 > gate_top_y; ybottom -= 8) {
 			add_backtable(id_chtab_6_environment, 52 /*gate slice 8px*/, draw_xh, 0, ybottom, blitters_0_no_transp, 0);
 		}
 	}
-	word gate_frame = ybottom - gate_top_y + 1;
+	gate_frame = ybottom - gate_top_y + 1;
 	if (gate_frame > 0 && gate_frame < 9) {
 		add_backtable(id_chtab_6_environment, door_fram_slice[gate_frame], draw_xh, 0, ybottom, blitters_0_no_transp, 0);
 	}
@@ -1143,9 +1168,10 @@ void draw_gate_back() {
 
 // seg008:18BE
 void draw_gate_fore() {
+	short ybottom;
 	calc_gate_pos();
 	add_foretable(id_chtab_6_environment, 51 /*gate bottom*/, draw_xh, 0, gate_bottom_y - 2, blitters_10h_transp, 0);
-	short ybottom = gate_bottom_y - 12;
+	ybottom = gate_bottom_y - 12;
 	if (ybottom < 192) {
 		for (; ybottom >= 0 && ybottom > 7 && ybottom - 7 > gate_top_y; ybottom -= 8) {
 			add_foretable(id_chtab_6_environment, 52 /*gate slice 8px*/, draw_xh, 0, ybottom, blitters_10h_transp, 0);
@@ -1155,6 +1181,8 @@ void draw_gate_fore() {
 
 // seg008:1937
 void alter_mods_allrm() {
+	word room;
+	word tilepos;
 
 #ifdef USE_COLORED_TORCHES
 	memset(torch_colors, 0, sizeof(torch_colors));
@@ -1163,11 +1191,11 @@ void alter_mods_allrm() {
 	// level.used_rooms is 25 on some levels. Limit it to the actual number of rooms.
 	if (level.used_rooms > 24) level.used_rooms = 24;
 
-	for (word room = 1; room <= level.used_rooms; room++) {
+	for (room = 1; room <= level.used_rooms; room++) {
 		get_room_address(room);
 		room_L = level.roomlinks[room-1].left;
 		room_R = level.roomlinks[room-1].right;
-		for (word tilepos = 0; tilepos < 30; tilepos++) {
+		for (tilepos = 0; tilepos < 30; tilepos++) {
 			load_alter_mod(tilepos);
 		}
 	}
@@ -1239,9 +1267,9 @@ void load_alter_mod(int tilepos) {
 			#else // #ifdef USE_FAKE_TILES
 			// When determining wall connections for fake walls, we need access to the tile modifier of adjacent tiles
 			#define read_adj_tile_modif_in_curr_room() \
-			int adj_tile_modif = curr_room_modif[adj_tile_index];
+			adj_tile_modif = curr_room_modif[adj_tile_index];
 			#define read_adj_tile_modif_in_external_room() \
-			int adj_tile_modif = level.bg[adj_tile_index];
+			adj_tile_modif = level.bg[adj_tile_index];
 			// Now redefine the condition for what tiletype / modifier combination counts as a valid "wall"
 			#define WALL_CONNECTION_CONDITION (                                                                       \
 				(adj_tile == tiles_20_wall && adj_tile_modif != 4 && (adj_tile_modif >> 4) != 4 &&                    \
@@ -1253,9 +1281,12 @@ void load_alter_mod(int tilepos) {
 			#endif
 
 			if (graphics_mode != gmCga && graphics_mode != gmHgaHerc) {
+				int adj_tile_index, adj_tile;
+#ifdef USE_FAKE_TILES
+				int adj_tile_modif;
+#endif
 				wall_to_right = 1;
 				wall_to_left = 1;
-				int adj_tile_index, adj_tile;
 				if (tilepos % 10 == 0) {
 					if (room_L) {
 						adj_tile_index = 30*(room_L-1)+tilepos+9;
@@ -1328,6 +1359,7 @@ void draw_moving() {
 
 // seg008:1B06
 void redraw_needed_tiles() {
+	word saved_drawn_room;
 	load_leftroom();
 	draw_objtable_items_at_tile(30);
 	for (drawn_row = 3; drawn_row--; ) {
@@ -1339,7 +1371,7 @@ void redraw_needed_tiles() {
 			redraw_needed(tbl_line[drawn_row] + drawn_col);
 		}
 	}
-	word saved_drawn_room = drawn_room;
+	saved_drawn_room = drawn_room;
 	drawn_room = room_A;
 	load_room_links();
 	load_leftroom();
@@ -1398,8 +1430,9 @@ void restore_peels() {
 
 // seg008:1C8F
 void add_drect(rect_type *source) {
-	for (short index = 0; index < drects_count; ++index) {
-		rect_type target_rect; // Dummy output argument, we care only about whether the intersection is non-empty.
+	short index;
+	for (index = 0; index < drects_count; ++index) {
+		rect_type target_rect;
 		if (intersect_rect(&target_rect, shrink2_rect(&target_rect, source, -1, -1), &drects[index])) {
 			rect_type* current_drect = &drects[index];
 			union_rect(current_drect, current_drect, source);
@@ -1417,6 +1450,7 @@ void add_drect(rect_type *source) {
 // seg008:1D29
 void draw_leveldoor() {
 	short ybottom = draw_main_y - 13;
+	short y;
 	leveldoor_right = (draw_xh<<3)+48;
 	if (custom->tbl_level_type[current_level]) leveldoor_right += 8;
 	add_backtable(id_chtab_6_environment, 99 /*leveldoor stairs bottom*/, draw_xh + 1, 0, ybottom, blitters_0_no_transp, 0);
@@ -1431,7 +1465,7 @@ void draw_leveldoor() {
 		}
 	}
 	leveldoor_ybottom = ybottom - (modifier_left & 3) - 48;
-	short y = ybottom - modifier_left;
+	y = ybottom - modifier_left;
 	do { // runs at least once
 		add_backtable(id_chtab_6_environment, 33 /*level door bottom*/, draw_xh + 1, 0, leveldoor_ybottom, blitters_0_no_transp, 0);
 		if (y > leveldoor_ybottom) leveldoor_ybottom += 4;
@@ -1521,9 +1555,10 @@ void draw_tile2() {
 void draw_objtable_items_at_tile(byte tilepos) {
 	//printf("draw_objtable_items_at_tile(%d)\n",tilepos); // debug
 	short obj_count = objtable_count;
+	short obj_index;
 	if (obj_count) {
 		n_curr_objs = 0;
-		for (short obj_index = obj_count - 1; obj_index >= 0; --obj_index) {
+		for (obj_index = obj_count - 1; obj_index >= 0; --obj_index) {
 			if (objtable[obj_index].tilepos == tilepos) {
 				curr_objs[n_curr_objs] = obj_index;
 				n_curr_objs++;
@@ -1531,7 +1566,7 @@ void draw_objtable_items_at_tile(byte tilepos) {
 		}
 		if (n_curr_objs) {
 			sort_curr_objs();
-			for (short obj_index = 0; obj_index < n_curr_objs; ++obj_index) {
+			for (obj_index = 0; obj_index < n_curr_objs; ++obj_index) {
 				draw_objtable_item(curr_objs[obj_index]);
 			}
 		}
@@ -1543,11 +1578,13 @@ void sort_curr_objs() {
 	short swapped;
 	// bubble sort
 	short last = n_curr_objs - 1;
+	short index;
+	short temp;
 	do {
 		swapped = 0;
-		for (short index = 0; index < last; ++index) {
+		for (index = 0; index < last; ++index) {
 			if (compare_curr_objs(index, index + 1)) {
-				short temp = curr_objs[index];
+				temp = curr_objs[index];
 				curr_objs[index] = curr_objs[index + 1];
 				curr_objs[index + 1] = temp;
 				swapped = 1;
@@ -1560,8 +1597,9 @@ void sort_curr_objs() {
 // seg008:203C
 int compare_curr_objs(int index1,int index2) {
 	short obj_index1 = curr_objs[index1];
+	short obj_index2;
 	if (objtable[obj_index1].obj_type == 1) return 1;
-	short obj_index2 = curr_objs[index2];
+	obj_index2 = curr_objs[index2];
 	if (objtable[obj_index2].obj_type == 1) return 0;
 	if (objtable[obj_index1].obj_type == 0x80 &&
 		objtable[obj_index2].obj_type == 0x80
@@ -1694,14 +1732,16 @@ void add_guard_to_objtable() {
 
 // seg008:2388
 void add_objtable(byte obj_type) {
+	word index;
+	objtable_type* entry_addr;
 	//printf("in add_objtable: objtable_count = %d\n",objtable_count); // debug
-	word index = objtable_count++;
+	index = objtable_count++;
 	//printf("in add_objtable: objtable_count = %d\n",objtable_count); // debug
 	if (index >= 50) {
 		show_dialog("ObjTable Overflow");
 		return /*0*/; // added
 	}
-	objtable_type* entry_addr = &objtable[index];
+	entry_addr = &objtable[index];
 	entry_addr->obj_type = obj_type;
 	x_to_xh_and_xl(obj_x, &entry_addr->xh, &entry_addr->xl);
 	entry_addr->y = obj_y;
@@ -1829,11 +1869,12 @@ void show_time() {
 
 // seg008:25A8
 void show_level() {
+	char sprintf_temp[32];
+	byte disp_level;
 #ifdef FIX_LEVEL_14_RESTARTING
 	text_time_remaining = text_time_total = 0;
 #endif
-	char sprintf_temp[32];
-	byte disp_level = current_level;
+	disp_level = current_level;
 	if (disp_level != 0 && disp_level < /*14*/ custom->hide_level_number_from_level && seamless == 0) {
 		if (disp_level == 13) {
 			disp_level = /*12*/ custom->level_13_level_number;
@@ -1927,20 +1968,19 @@ void erase_bottom_text(int arg_0) {
 // seg008:268F
 void wall_pattern(int which_part,int which_table) {
 	word bottom_divider; word middle_divider; byte bottom_divider_offset; byte middle_divider_offset;
-	// save the value for the sprite insertion method, so that it can be restored
 	add_table_type saved_sim = ptr_add_table;
-	// set the sprite insertion method based on the arguments
+	dword saved_prng_state;
+	word is_dungeon;
+	byte bg_modifier;
 	if (which_table == 0) {
 		ptr_add_table = &add_backtable;
 	} else {
 		ptr_add_table = &add_foretable;
 	}
-	// save the state of the pseudorandom number generator
-	dword saved_prng_state = random_seed;
-	// set the new seed
+	saved_prng_state = random_seed;
 	random_seed = drawn_room + tbl_line[drawn_row] + drawn_col;
-	prandom(1); // fetch a random number and discard it
-	word is_dungeon = (custom->tbl_level_type[current_level] < DESIGN_PALACE) || custom->enable_wda_in_palace;
+	prandom(1);
+	is_dungeon = (custom->tbl_level_type[current_level] < DESIGN_PALACE) || custom->enable_wda_in_palace;
 	if ( (!is_dungeon) && (graphics_mode== GRAPHICS_VGA) ) {
 		// I haven't traced the palace WDA
 		//[...]
@@ -1968,9 +2008,7 @@ void wall_pattern(int which_part,int which_table) {
 		bottom_divider = prandom(1);
 		bottom_divider_offset = prandom(4);
 
-		// store the background modifier for the current tile in a local variable
-		// apparently, for walls, the modifier stores whether there are adjacent walls
-		byte bg_modifier = curr_modifier & 0x7F;
+		bg_modifier = curr_modifier & 0x7F;
 		switch (bg_modifier) {
 			case WALL_MODIFIER_WWW: // left and right tiles are walls
 				if (which_part != 0) {

@@ -105,28 +105,30 @@ void check_shadow() {
 	enter_guard();
 }
 
-// seg002:0112
+/* seg002:0112 */
 void enter_guard() {
-	// arrays are indexed 0..23 instead of 1..24
 	word room_minus_1 = drawn_room - 1;
-	word frame = Char.frame; // hm?
+	word frame = Char.frame;
 	word guard_tile = level.guards_tile[room_minus_1];
+	byte seq_hi;
+#ifdef REMEMBER_GUARD_HP
+	int remembered_hp;
+#endif
 #ifndef FIX_OFFSCREEN_GUARDS_DISAPPEARING
 	if (guard_tile >= 30) return;
 #else
 	if (guard_tile >= 30) {
-		if (!fixes->fix_offscreen_guards_disappearing) return;
-
-		// try to see if there are offscreen guards in the left and right rooms that might be visible from this room
 		short left_guard_tile = 31;
 		short right_guard_tile = 31;
-		if (room_L > 0) left_guard_tile = level.guards_tile[room_L-1];
-		if (room_R > 0) right_guard_tile = level.guards_tile[room_R-1];
-
 		int other_guard_x;
 		sbyte other_guard_dir;
 		int delta_x;
 		int other_room_minus_1;
+
+		if (!fixes->fix_offscreen_guards_disappearing) return;
+
+		if (room_L > 0) left_guard_tile = level.guards_tile[room_L-1];
+		if (room_R > 0) right_guard_tile = level.guards_tile[room_R-1];
 		if (right_guard_tile >= 0 && right_guard_tile < 30) {
 			other_room_minus_1 = room_R - 1;
 			other_guard_x = level.guards_x[other_room_minus_1];
@@ -187,18 +189,16 @@ loc_left_guard_tile:
 	}
 
 	#ifdef REMEMBER_GUARD_HP
-	int remembered_hp = (level.guards_color[room_minus_1] & 0xF0) >> 4;
+	remembered_hp = (level.guards_color[room_minus_1] & 0xF0) >> 4;
 	#endif
-	curr_guard_color &= 0x0F; // added; only least significant 4 bits are used for guard color
+	curr_guard_color &= 0x0F;
 
-	// level 3 has skeletons with infinite lives
-	//if (current_level == 3) {
 	if (custom->tbl_guard_type[current_level] == 2) {
 		Char.charid = charid_4_skeleton;
 	} else {
 		Char.charid = charid_2_guard;
 	}
-	byte seq_hi = level.guards_seq_hi[room_minus_1];
+	seq_hi = level.guards_seq_hi[room_minus_1];
 	if (seq_hi == 0) {
 		if (Char.charid == charid_4_skeleton) {
 			Char.sword = sword_2_drawn;
@@ -271,11 +271,12 @@ void check_guard_fallout() {
 
 // seg002:02F5
 void leave_guard() {
+	word room_minus_1;
 	if (Guard.direction == dir_56_none || Guard.charid == charid_1_shadow || Guard.charid == charid_24_mouse) {
 		return;
 	}
 	// arrays are indexed 0..23 instead of 1..24
-	word room_minus_1 = Guard.room - 1;
+	room_minus_1 = Guard.room - 1;
 	level.guards_tile[room_minus_1] = get_tilepos(0, Guard.curr_row);
 
 	level.guards_color[room_minus_1] = curr_guard_color & 0x0F; // restriction to 4 bits added
@@ -310,6 +311,7 @@ void follow_guard() {
 // seg002:03C7
 void exit_room() {
 	short leave = 0;
+	short kid_room_m1;
 	if (exit_room_timer != 0) {
 		--exit_room_timer;
 #ifdef FIX_HANG_ON_TELEPORT
@@ -338,7 +340,7 @@ void exit_room() {
 #endif
 	if (Guard.direction == dir_56_none) return;
 	if (Guard.alive < 0 && Guard.sword == sword_2_drawn) {
-		short kid_room_m1 = Kid.room - 1;
+		kid_room_m1 = Kid.room - 1;
 		// kid_room_m1 might be 65535 (-1) when the prince fell out of the level (to room 0) while a guard was active.
 		// In this case, the indexing in the following condition crashes on Linux.
 		if ((kid_room_m1 >= 0 && kid_room_m1 <= 23) &&
@@ -626,8 +628,9 @@ void move_7() {
 
 // seg002:0776
 void autocontrol_opponent() {
+	word charid;
 	move_0_nothing();
-	word charid = Char.charid;
+	charid = Char.charid;
 	if (charid == charid_0_kid) {
 		autocontrol_kid();
 	} else {
@@ -708,8 +711,9 @@ void autocontrol_guard() {
 
 // seg002:0876
 void autocontrol_guard_inactive() {
+	short distance;
 	if (Kid.alive >= 0) return;
-	short distance = char_opp_dist();
+	distance = char_opp_dist();
 	if (Opp.curr_row != Char.curr_row || (word)distance < (word)-8) {
 		// If Kid made a sound ...
 		if (is_guard_notice) {
@@ -888,8 +892,9 @@ void guard_block() {
 // seg002:0B73
 void guard_strike() {
 	word opp_frame = Opp.frame;
+	word char_frame;
 	if (opp_frame == frame_169_begin_block || opp_frame == frame_151_strike_1) return;
-	word char_frame = Char.frame;
+	char_frame = Char.frame;
 	if (char_frame == frame_161_parry || char_frame == frame_150_parry) {
 		if (custom->restrikeprob[guard_skill] > prandom(255)) {
 			move_6_shift();
@@ -922,7 +927,8 @@ void hurt_by_sword() {
 				// a guard can get teleported to the other side of kid's room
 				// when fighting between rooms and hitting a gate
 				if (fixes->fix_offscreen_guards_disappearing) {
-					short gate_col = tile_col;
+					short gate_col;
+					gate_col = tile_col;
 					if (curr_room != Char.room)	{
 						if (curr_room == level.roomlinks[Char.room - 1].right) {
 							gate_col += SCREEN_TILECOUNTX;
@@ -1081,15 +1087,17 @@ void check_skel() {
 
 // seg002:0F3F
 void do_auto_moves(const auto_move_type *moves_ptr) {
+	short demoindex;
+	short curr_move;
 	if (demo_time >= 0xFE) return;
 	++demo_time;
-	short demoindex = demo_index;
+	demoindex = demo_index;
 	if (moves_ptr[demoindex].time <= demo_time) {
 		++demo_index;
 	} else {
 		demoindex = demo_index - 1;
 	}
-	short curr_move = moves_ptr[demoindex].move;
+	curr_move = moves_ptr[demoindex].move;
 	switch (curr_move) {
 		case -1:
 		break;

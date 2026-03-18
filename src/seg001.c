@@ -504,7 +504,8 @@ short princess_torch_frame[] = {1, 6};
 
 // seg001:0808
 void princess_room_torch() {
-	for (short which = 2; which--; ) {
+	short which;
+	for (which = 2; which--; ) {
 		which_torch = !which_torch;
 		princess_torch_frame[which_torch] = get_torch_frame(princess_torch_frame[which_torch]);
 		add_backtable(id_chtab_1_flameswordpotion, princess_torch_frame[which_torch] + 1, princess_torch_pos_xh[which_torch], princess_torch_pos_xl[which_torch], 116, 0, 0);
@@ -576,6 +577,7 @@ void end_sequence() {
 	short i;
 	short color = 0;
 	short bgcolor = 15;
+	peel_type* peel;
 	load_intro(1, &end_sequence_anim, 1);
 	clear_screen_and_sounds();
 	is_ending_sequence = true; // added (fix being able to pause the game during the end sequence)
@@ -613,7 +615,7 @@ void end_sequence() {
 		draw_full_image(HOF_POP);
 		show_hof();
 		offset4_rect_add(&rect, &hof_rects[hof_index], -4, -1, -40, -1);
-		peel_type* peel = read_peel_from_screen(&rect);
+		peel = read_peel_from_screen(&rect);
 		if (graphics_mode == gmMcgaVga) {
 			color = 0xBE;
 			bgcolor = 0xB7;
@@ -674,8 +676,11 @@ void load_intro(int which_imgs,cutscene_ptr_type func,int free_sounds) {
 	load_chtab_from_file(id_chtab_3_princessinstory, 800, "PV.DAT", 1<<9);
 	load_chtab_from_file(id_chtab_4_jaffarinstory_princessincutscenes,
 	                     50*which_imgs + 850, "PV.DAT", 1<<10);
-	for (short current_star = 0; current_star < N_STARS; ++current_star) {
+	{
+	short current_star;
+	for (current_star = 0; current_star < N_STARS; ++current_star) {
 		draw_star(current_star, 0);
+	}
 	}
 	current_target_surface = onscreen_surface_;
 	while (check_sound_playing()) {
@@ -731,13 +736,15 @@ void draw_star(int which_star,int mark_dirty) {
 
 // seg001:0E94
 void show_hof() {
-	// Hall of Fame
 	char time_text[12];
-	for (short index = 0; index < hof_count; ++index) {
+	short index;
+	for (index = 0; index < hof_count; ++index) {
+#ifdef ALLOW_INFINITE_TIME
+		int minutes, seconds;
+#endif
 
 		printf("index = %d, hof[index].min = %d, hof[index].tick = %d\n", index, hof[index].min, hof[index].tick);
 #ifdef ALLOW_INFINITE_TIME
-		int minutes, seconds;
 		if (hof[index].min > 0) {
 			// if there was a time limit
 			minutes = hof[index].min - 1;
@@ -788,10 +795,12 @@ void hof_write() {
 
 // seg001:0F6C
 void hof_read() {
-	hof_count = 0;
 	char custom_hof_path[POP_MAX_PATH];
-	const char* hof_path = get_hof_path(custom_hof_path, sizeof(custom_hof_path));
-	FILE* handle = fopen(hof_path, "rb");
+	const char* hof_path;
+	FILE* handle;
+	hof_count = 0;
+	hof_path = get_hof_path(custom_hof_path, sizeof(custom_hof_path));
+	handle = fopen(hof_path, "rb");
 	if (handle == NULL)
 		return;
 	if (fread(&hof_count, 1, 2, handle) != 2 ||

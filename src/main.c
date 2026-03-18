@@ -30,14 +30,26 @@ static const char stack[] = "$STACK:200000";
 #include <psppower.h>
 #endif
 
+FILE* debug_log_file = NULL;
+
+void debug_log(const char* msg) {
+	if (!debug_log_file) {
+		debug_log_file = fopen("debug.log", "w");
+		if (!debug_log_file) return;
+	}
+	fputs(msg, debug_log_file);
+	fputs("\n", debug_log_file);
+	fflush(debug_log_file);
+}
+
 int main(int argc, char *argv[])
 {
-	#ifdef __PSP__
-	scePowerSetClockFrequency(333,333,166);
-	#endif
+	debug_log("main() entered");
 	g_argc = argc;
 	g_argv = argv;
+	debug_log("calling pop_main()");
 	pop_main();
+	debug_log("pop_main() returned");
 	return 0;
 }
 
