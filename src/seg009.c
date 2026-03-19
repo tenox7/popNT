@@ -25,6 +25,8 @@ The authors of this program may be contacted at https://forum.princed.org
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
+__declspec(dllimport) HPALETTE g_sdl_display_palette;
+static HPALETTE hPalette_game = NULL;
 #else
 #include "dirent.h"
 #endif
@@ -2594,6 +2596,9 @@ void init_scaling(void) {
 
 // seg009:38ED
 extern void debug_log(const char* msg);
+#ifdef _WIN32
+void sync_win_palette(void);
+#endif
 
 void set_gr_mode(byte grmode) {
 	Uint32 flags;
@@ -2853,6 +2858,9 @@ void update_screen() {
 	} else {
 		SDL_UpdateTexture(target_texture, NULL, surface->pixels, surface->pitch);
 	}
+#ifdef _WIN32
+	sync_win_palette();
+#endif
 	SDL_RenderClear(renderer_);
 	SDL_RenderCopy(renderer_, target_texture, NULL, NULL);
 	SDL_RenderPresent(renderer_);
@@ -2872,10 +2880,26 @@ void set_pal_arr(int start,int count,const rgb_type* array) {
 
 rgb_type palette[256];
 
-// seg009:92DF
+#ifdef _WIN32
+void sync_win_palette(void) {
+	char palBuf[sizeof(LOGPALETTE) + 255 * sizeof(PALETTEENTRY)];
+	LOGPALETTE *lp = (LOGPALETTE *)palBuf;
+	int i;
+	lp->palVersion = 0x300;
+	lp->palNumEntries = 256;
+	for (i = 0; i < 256; i++) {
+		lp->palPalEntry[i].peRed = palette[i].r << 2;
+		lp->palPalEntry[i].peGreen = palette[i].g << 2;
+		lp->palPalEntry[i].peBlue = palette[i].b << 2;
+		lp->palPalEntry[i].peFlags = PC_NOCOLLAPSE;
+	}
+	if (hPalette_game) DeleteObject(hPalette_game);
+	hPalette_game = CreatePalette(lp);
+	g_sdl_display_palette = hPalette_game;
+}
+#endif
+
 void set_pal(int index,int red,int green,int blue) {
-	// stub
-	//palette[index] = ((red&0x3F)<<2)|((green&0x3F)<<2<<8)|((blue&0x3F)<<2<<16);
 	palette[index].r = red;
 	palette[index].g = green;
 	palette[index].b = blue;
