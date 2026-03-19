@@ -25,6 +25,7 @@ The authors of this program may be contacted at https://forum.princed.org
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
+#include "arch.h"
 extern HPALETTE g_sdl_display_palette;
 static HPALETTE hPalette_game = NULL;
 #else
@@ -2652,9 +2653,22 @@ void set_gr_mode(byte grmode) {
 	if (!is_validate_mode) // run without a window if validating a replay
 #endif
 	debug_log("set_gr_mode: creating window");
-	window_ = SDL_CreateWindow(WINDOW_TITLE,
-	                           SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-	                           pop_window_width, pop_window_height, flags);
+	{
+		char window_title[128];
+		const char *arch = "";
+#ifdef _WIN32
+		SYSTEM_INFO si;
+		GetSystemInfo(&si);
+		if (si.wProcessorArchitecture < sizeof(ProcessorArchitectureNames) / sizeof(ProcessorArchitectureNames[0]))
+			arch = ProcessorArchitectureNames[si.wProcessorArchitecture];
+		else
+			arch = PROCESSOR_ARCHITECTURE_STR_UNKNOWN;
+#endif
+		snprintf_check(window_title, sizeof(window_title), "%s %s", WINDOW_TITLE, arch);
+		window_ = SDL_CreateWindow(window_title,
+		                           SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+		                           pop_window_width, pop_window_height, flags);
+	}
 	debug_log(window_ ? "set_gr_mode: window created OK" : "set_gr_mode: window creation FAILED");
 	// Make absolutely sure that VSync will be off, to prevent timer issues.
 	SDL_SetHint(SDL_HINT_RENDER_VSYNC, "0");
