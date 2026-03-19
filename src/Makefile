@@ -8,7 +8,7 @@ CC = cl /nologo /c /Od /Zi /W0 /I. /I..\..\SDL\include
 	$(CC) $<
 
 prince.exe: $(OBJ)
-	link /nologo /debug /subsystem:windows /out:prince.exe $(OBJ) ..\..\SDL\SDL2.lib kernel32.lib user32.lib gdi32.lib winmm.lib shell32.lib advapi32.lib
+	link /nologo /debug /subsystem:windows /out:prince.exe $(OBJ) ..\..\SDL\SDL2_static.lib kernel32.lib user32.lib gdi32.lib winmm.lib shell32.lib advapi32.lib ole32.lib oleaut32.lib imm32.lib version.lib uuid.lib
 
 clean:
 	del *.obj

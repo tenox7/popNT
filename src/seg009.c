@@ -25,7 +25,7 @@ The authors of this program may be contacted at https://forum.princed.org
 #ifdef _WIN32
 #include <windows.h>
 #include <wchar.h>
-__declspec(dllimport) HPALETTE g_sdl_display_palette;
+extern HPALETTE g_sdl_display_palette;
 static HPALETTE hPalette_game = NULL;
 #else
 #include "dirent.h"
@@ -2835,6 +2835,7 @@ void draw_overlay(void) {
 
 void update_screen() {
 	SDL_Surface* surface;
+	process_events();
 	draw_overlay();
 	surface = get_final_surface();
 	init_scaling();
