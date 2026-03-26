@@ -1,5 +1,7 @@
 # popNT - SDLPoP port to NT RISC
 
+![popNT](popNT.png)
+
 https://github.com/NagyD/SDLPoP
 
 Builds for NT4.0 with MSVC 4.0 (cl 10).
